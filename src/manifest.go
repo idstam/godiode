@@ -21,7 +21,8 @@ type DirRecord struct {
 
 type FileRecord struct {
 	DirRecord
-	size int64
+	size          int64
+	nextPackageId uint32
 }
 
 type Manifest struct {
@@ -87,7 +88,7 @@ func deserializeManifest(data []byte, hmacSecret string) (*Manifest, error) {
 		offset += 4
 		s := binary.BigEndian.Uint64(data[offset:])
 		offset += 8
-		manifest.files[i] = FileRecord{DirRecord{p, modts}, int64(s)}
+		manifest.files[i] = FileRecord{DirRecord{p, modts}, int64(s), 0}
 	}
 	return &manifest, nil
 }
@@ -165,12 +166,12 @@ func generateManifest(dir string) (*Manifest, error) {
 				if err != nil {
 					return nil
 				}
-				manifest.files = append(manifest.files, FileRecord{DirRecord{p, uint32(info.ModTime().Unix())}, info.Size()})
+				manifest.files = append(manifest.files, FileRecord{DirRecord{p, uint32(info.ModTime().Unix())}, info.Size(), 0})
 			}
 			return nil
 		})
 	} else {
-		manifest.files = append(manifest.files, FileRecord{DirRecord{finfo.Name(), uint32(finfo.ModTime().Unix())}, finfo.Size()})
+		manifest.files = append(manifest.files, FileRecord{DirRecord{finfo.Name(), uint32(finfo.ModTime().Unix())}, finfo.Size(), 0})
 	}
 
 	return &manifest, nil

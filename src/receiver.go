@@ -34,7 +34,8 @@ type PendingManifestTransfer struct {
 type PendingFileTransfer struct {
 	size          uint64
 	offset        uint64
-	index         uint8
+	index         uint32
+	incomplete    bool
 	rawSize       uint64
 	hash          hash.Hash
 	file          *os.File
@@ -62,22 +63,40 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		return nil
 	}
 
-	idx := buff[0] & 0x7F
-	if idx == pt.index {
+	//idx := buff[0] & 0x7F  //JSI
+	manifestId := binary.BigEndian.Uint32(buff[1:])
+	fileIndex := binary.BigEndian.Uint32(buff[5:])
+	packageIndex := binary.BigEndian.Uint32(buff[9:])
+
+	if (fileIndex != uint32(pt.fileIndex)) || (manifestId != uint32(r.manifestId)) {
+		return errors.New("received package for unexpected manifest or file")
+	}
+	if packageIndex < pt.index {
+		//We're in the expected file, but we're not receiving the packages we want yet.
+		return nil
+	}
+
+	//if idx == pt.index { //JSI
+	if packageIndex == pt.index { //JSI
 		//check out of order packets
-		if pt.offset+uint64(read-1) > pt.size {
+		if pt.offset+uint64(read-13) > pt.size {
+			fmt.Printf("Received package %d", packageIndex)
+
 			err := errors.New("Received too much data on file")
 			pt.err = &err
 			pt.file.Close()
 			os.Remove(pt.filename)
 			return err
 		}
-		pt.hash.Write(buff[1:read])
-		pt.file.Write(buff[1:read])
-		pt.index = (pt.index + 1) & 0x7F
-		pt.offset += uint64(read - 1)
+		pt.incomplete = false
+		pt.hash.Write(buff[13:read])
+		pt.file.Write(buff[13:read])
+		//pt.index = (pt.index + 1) & 0x7F  //JSI
+		pt.index++
+		r.manifest.files[fileIndex].nextPackageId = pt.index
+		pt.offset += uint64(read - 13)
 		pt.rawSize += uint64(HEADER_OVERHEAD + read)
-		if pt.offset == uint64(read-1) && r.conf.Verbose {
+		if pt.offset == uint64(read-13) && r.conf.Verbose {
 			//			fmt.Println("Received first byte of data of " + pt.filename)
 		}
 		if pt.offset == pt.size {
@@ -85,8 +104,10 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		}
 	} else {
 		//log.Fatal("Received out of order packet ", ptype&0x7F, pt.index, pt.offset)
-		err := errors.New("Received out of order packet for file transfer")
+		err := errors.New(fmt.Sprintf("Received out of order packet for file transfer want %d got %d \n", pt.index, packageIndex))
+		pt.incomplete = true
 		pt.err = &err
+		pt.file.Close()
 		return err
 	}
 	return nil
@@ -151,7 +172,8 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	}
 
 	tmpFile := path.Join(r.tmpDir, "godiodetmp."+strconv.FormatUint(uint64(manifestId), 16)+"."+strconv.Itoa(fileIndex))
-	file, err := os.OpenFile(tmpFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, r.conf.Receiver.FilePermission)
+
+	file, err := os.OpenFile(tmpFile, os.O_RDWR|os.O_APPEND|os.O_CREATE, r.conf.Receiver.FilePermission)
 	if err != nil {
 		return errors.New("Failed to create file " + fp + ": " + err.Error())
 	}
@@ -163,6 +185,7 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 		filename:      fp,
 		fileIndex:     fileIndex,
 		modts:         mf.modts,
+		index:         mf.nextPackageId,
 	}
 	return nil
 }
@@ -234,13 +257,19 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 	}
 
 	pft.file.Close()
+	if r.pendingFileTransfer.incomplete {
+		r.pendingFileTransfer = nil
+		return errors.New(fmt.Sprintf("Ignoring file transfer complete due to missing packages %s", pft.filename))
+	}
+
 	r.pendingFileTransfer = nil
 	if !bytes.Equal(h, pft.hash.Sum(nil)) {
 		os.Remove(pft.filename)
-		return errors.New("Data checksum error for received file " + pft.filename)
+		//return errors.New("Data checksum error for received file " + pft.filename)
+		fmt.Printf("Ignoring data checksum error for received file %s", pft.filename)
 	}
 	tmpFile := path.Join(r.tmpDir, "godiodetmp."+strconv.FormatUint(uint64(manifestId), 16)+"."+strconv.Itoa(fileIndex))
-	go r.moveTmpFile(pft, tmpFile)
+	r.moveTmpFile(pft, tmpFile)
 	return nil
 }
 
@@ -284,7 +313,7 @@ func (r *Receiver) handleManifestReceived() error {
 				if err != nil {
 					return nil
 				}
-				fm[p] = FileRecord{DirRecord{p, uint32(finfo.ModTime().Unix())}, finfo.Size()}
+				fm[p] = FileRecord{DirRecord{p, uint32(finfo.ModTime().Unix())}, finfo.Size(), 0}
 			}
 			return nil
 		})
@@ -441,11 +470,11 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 func receive(conf *Config, dir string) error {
 
 	dir = path.Clean(dir) + "/"
-	finfo, err := os.Stat(dir)
+	fileInfo, err := os.Stat(dir)
 	if err != nil {
 		return errors.New("Failed to stat receive dir " + err.Error())
 	}
-	if !finfo.IsDir() {
+	if !fileInfo.IsDir() {
 		return errors.New("Receive dir is not a directory")
 	}
 
@@ -457,11 +486,11 @@ func receive(conf *Config, dir string) error {
 	if err != nil && !errors.Is(err, fs.ErrExist) {
 		return errors.New("Could not create tmp dir")
 	}
-	finfo, err = os.Stat(tmpDir)
+	fileInfo, err = os.Stat(tmpDir)
 	if err != nil {
 		return errors.New("Failed to stat tmp dir " + err.Error())
 	}
-	if !finfo.IsDir() {
+	if !fileInfo.IsDir() {
 		return errors.New("Tmp dir is not a directory")
 	}
 	tmpFiles, err := os.ReadDir(tmpDir)
@@ -472,7 +501,7 @@ func receive(conf *Config, dir string) error {
 		if strings.HasPrefix(tmpFiles[i].Name(), "godiodetmp.") {
 			err = os.Remove(path.Join(tmpDir, tmpFiles[i].Name()))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to remove tmp file: "+tmpFiles[i].Name()+" "+err.Error()+"\n")
+				_, _ = fmt.Fprintf(os.Stderr, "Failed to remove tmp file: "+tmpFiles[i].Name()+" "+err.Error()+"\n")
 			}
 		}
 	}
@@ -495,7 +524,7 @@ func receive(conf *Config, dir string) error {
 
 	err = c.SetReadBuffer(300 * conf.MaxPacketSize)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to set read buffer: "+err.Error()+"\n")
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to set read buffer: "+err.Error()+"\n")
 	}
 
 	buff := make([]byte, conf.MaxPacketSize)
@@ -508,7 +537,7 @@ func receive(conf *Config, dir string) error {
 	for {
 		read, err := c.Read(buff)
 		if err != nil {
-			log.Fatal("Failed to recv data: " + err.Error())
+			log.Fatal("Failed to receive data: " + err.Error())
 		}
 		if read < 1 {
 			continue
@@ -524,7 +553,7 @@ func receive(conf *Config, dir string) error {
 			err = receiver.onManifestPacket(buff, read)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, err.Error()+"\n")
+			_, _ = fmt.Fprintf(os.Stderr, err.Error()+"\n")
 		}
 	}
 

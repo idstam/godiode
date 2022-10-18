@@ -79,7 +79,9 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
 			l += copied
 			offset += copied
 		}
+
 		c.Write(buff[:l])
+
 		throttle(copied)
 	}
 	return nil
@@ -95,6 +97,15 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
  * size - uint64 - size of file in bytes
  * mtime - int64 - unix millis
  * sign - byte[64] - hmac512 of this packet
+ *
+ *
+ * file data packet
+ *
+ * type - 0x80
+ * manifestSessionId - uint32 - manifest session id
+ * fileIndex - uint32 - file index in the manifest
+ * packageIndex - uint32
+ * data - up to max payload size
  *
  *
  *
@@ -141,10 +152,16 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	time.Sleep(50 * time.Millisecond)
 
 	//buffOut := make([]byte, MAX_PACKET_SIZE)
-	buff[0] = 0x7F
+	//buff[0] = 0x7F //JSI
+	buff[0] = 0x80
+	var packetIndex uint32 //JSI
+
 	//	pos := 0
 	for {
-		read, err := file.Read(buff[1:])
+		binary.BigEndian.PutUint32(buff[1:], manifestId)
+		binary.BigEndian.PutUint32(buff[5:], fIndex)
+		binary.BigEndian.PutUint32(buff[9:], packetIndex) //JSI
+		read, err := file.Read(buff[13:])
 		//		fmt.Println("read=%d", read, err)
 		if read == 0 {
 			break
@@ -152,16 +169,13 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		if err != nil {
 			return errors.New("Failed to read file: " + err.Error())
 		}
-		//		fmt.Println("xread=%d", read, err)
-		buff[0]++
-		if buff[0] == 0 {
-			buff[0] = 0x80
-		}
 
-		//		c.WriteMsgUDP(buff[:(read+1)], nil, maddr)
 		throttle(read)
-		c.Write(buff[:(read + 1)])
-		h.Write(buff[1:(read + 1)])
+		if rand.Intn(100) > 10 {
+			c.Write(buff[:(read + 13)])
+		}
+		h.Write(buff[13:(read + 13)])
+		packetIndex++ //JSI
 	}
 
 	hs := h.Sum(nil)
@@ -238,10 +252,10 @@ func send(conf *Config, dir string) error {
 		}
 	}
 	c, err := net.DialUDP("udp", baddr, maddr)
-	defer c.Close()
 	if err != nil {
 		return err
 	}
+	defer c.Close()
 	err = c.SetWriteBuffer(10 * conf.MaxPacketSize)
 	if err != nil {
 		return err
@@ -278,7 +292,9 @@ func send(conf *Config, dir string) error {
 			err = sendFile(conf, c, manifestId, 0, dir)
 			return err
 		} else {
-			dir = dir + "/"
+
+			dir = path.Clean(dir) + "/"
+
 			for i := 0; i < len(manifest.files); i++ {
 				err = sendFile(conf, c, manifestId, uint32(i), dir+manifest.files[i].path)
 				if err != nil {

@@ -27,12 +27,14 @@ type Config struct {
 }
 
 var config = Config{
-	MaxPacketSize: 1500 - 8 - 20,
-	HMACSecret:    "",
-	MulticastAddr: "239.252.28.12:5432",
-	BindAddr:      "",
-	NIC:           "",
-	Sender:        SenderConfig{Bw: 0},
+	MaxPacketSize:  1500 - 8 - 20,
+	HMACSecret:     "",
+	MulticastAddr:  "239.252.28.12:5432",
+	BindAddr:       "",
+	NIC:            "",
+	ResendManifest: false,
+	ResendCount:    1,
+	Sender:         SenderConfig{Bw: 0},
 	Receiver: ReceiverConfig{
 		Delete:           false,
 		FilePermission:   0600,
