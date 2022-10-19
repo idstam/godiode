@@ -23,11 +23,13 @@ type FileRecord struct {
 	DirRecord
 	size          int64
 	nextPackageId uint32
+	complete      bool
 }
 
 type Manifest struct {
-	dirs  []DirRecord
-	files []FileRecord
+	dirs                []DirRecord
+	files               []FileRecord
+	completedFilesCount int
 }
 
 /**
@@ -88,7 +90,7 @@ func deserializeManifest(data []byte, hmacSecret string) (*Manifest, error) {
 		offset += 4
 		s := binary.BigEndian.Uint64(data[offset:])
 		offset += 8
-		manifest.files[i] = FileRecord{DirRecord{p, modts}, int64(s), 0}
+		manifest.files[i] = FileRecord{DirRecord{p, modts}, int64(s), 0, false}
 	}
 	return &manifest, nil
 }
@@ -138,7 +140,7 @@ func (m *Manifest) serializeManifest(hmacSecret string) ([]byte, error) {
 }
 
 func generateManifest(dir string) (*Manifest, error) {
-	manifest := Manifest{make([]DirRecord, 0), make([]FileRecord, 0)}
+	manifest := Manifest{make([]DirRecord, 0), make([]FileRecord, 0), 0}
 	dir = path.Clean(dir)
 	finfo, err := os.Stat(dir)
 	if err != nil {
@@ -166,12 +168,12 @@ func generateManifest(dir string) (*Manifest, error) {
 				if err != nil {
 					return nil
 				}
-				manifest.files = append(manifest.files, FileRecord{DirRecord{p, uint32(info.ModTime().Unix())}, info.Size(), 0})
+				manifest.files = append(manifest.files, FileRecord{DirRecord{p, uint32(info.ModTime().Unix())}, info.Size(), 0, false})
 			}
 			return nil
 		})
 	} else {
-		manifest.files = append(manifest.files, FileRecord{DirRecord{finfo.Name(), uint32(finfo.ModTime().Unix())}, finfo.Size(), 0})
+		manifest.files = append(manifest.files, FileRecord{DirRecord{finfo.Name(), uint32(finfo.ModTime().Unix())}, finfo.Size(), 0, false})
 	}
 
 	return &manifest, nil

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	//	"flag"
 	"crypto/hmac"
@@ -57,6 +58,8 @@ type Receiver struct {
 	pendingManifestTransfer *PendingManifestTransfer
 }
 
+var wg sync.WaitGroup
+
 func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 	pt := r.pendingFileTransfer
 	if pt == nil || read < 1 || pt.err != nil {
@@ -104,7 +107,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		}
 	} else {
 		//log.Fatal("Received out of order packet ", ptype&0x7F, pt.index, pt.offset)
-		err := errors.New(fmt.Sprintf("Received out of order packet for file transfer want %d got %d \n", pt.index, packageIndex))
+		err := errors.New(fmt.Sprintf("Received out of order packet for file transfer want %d got %d \n %s \n", pt.index, packageIndex, pt.filename))
 		pt.incomplete = true
 		pt.err = &err
 		pt.file.Close()
@@ -190,7 +193,7 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	return nil
 }
 
-func (r *Receiver) moveTmpFile(pft *PendingFileTransfer, tmpFile string) {
+func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string) {
 	timeTaken := float64(time.Duration.Seconds(time.Since(pft.transferStart)))
 	err := os.Rename(tmpFile, pft.filename)
 	if err != nil {
@@ -245,7 +248,7 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 		return errors.New("Ignoring file transfer complete for other file than the current pending")
 	}
 
-	h := buff[offset : offset+32]
+	hashFromManifest := buff[offset : offset+32]
 	offset += 32
 
 	h512 := sha512.New()
@@ -257,22 +260,53 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 	}
 
 	pft.file.Close()
-	if r.pendingFileTransfer.incomplete {
-		r.pendingFileTransfer = nil
-		return errors.New(fmt.Sprintf("Ignoring file transfer complete due to missing packages %s", pft.filename))
-	}
 
+	wg.Add(1)
+	go r.finalizeFileTransfer(*pft, manifestId, hashFromManifest)
 	r.pendingFileTransfer = nil
-	if !bytes.Equal(h, pft.hash.Sum(nil)) {
-		os.Remove(pft.filename)
-		//return errors.New("Data checksum error for received file " + pft.filename)
-		fmt.Printf("Ignoring data checksum error for received file %s", pft.filename)
-	}
-	tmpFile := path.Join(r.tmpDir, "godiodetmp."+strconv.FormatUint(uint64(manifestId), 16)+"."+strconv.Itoa(fileIndex))
-	r.moveTmpFile(pft, tmpFile)
+
 	return nil
 }
 
+func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int, hashFromManifest []byte) {
+	if pft.incomplete {
+		wg.Done()
+		return
+	}
+
+	tmpFile := path.Join(r.tmpDir, "godiodetmp."+strconv.FormatUint(uint64(manifestId), 16)+"."+strconv.Itoa(pft.fileIndex))
+	f, err := os.Open(tmpFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		log.Fatal(err)
+	}
+
+	r.manifest.completedFilesCount++
+	r.manifest.files[pft.fileIndex].complete = true
+
+	//TODO Ta bort dessa två rader. De är till för att förstöra hashen
+	//hashFromManifest[0] = 0
+	//hashFromManifest[1] = 0
+	if !bytes.Equal(hashFromManifest, h.Sum(nil)) {
+		r.manifest.completedFilesCount--
+		r.manifest.files[pft.fileIndex].complete = false
+		r.manifest.files[pft.fileIndex].nextPackageId = 0
+		os.Remove(tmpFile)
+		//return errors.New("Data checksum error for received file " + pft.filename)
+		fmt.Printf("data checksum error for received file %s \n", pft.filename)
+		wg.Done()
+		return
+	}
+
+	r.moveTmpFile(pft, tmpFile)
+
+	wg.Done()
+}
 func (r *Receiver) createFolders() error {
 	if r.manifest == nil {
 		return errors.New("No manifest")
@@ -313,7 +347,7 @@ func (r *Receiver) handleManifestReceived() error {
 				if err != nil {
 					return nil
 				}
-				fm[p] = FileRecord{DirRecord{p, uint32(finfo.ModTime().Unix())}, finfo.Size(), 0}
+				fm[p] = FileRecord{DirRecord{p, uint32(finfo.ModTime().Unix())}, finfo.Size(), 0, false}
 			}
 			return nil
 		})
@@ -468,7 +502,7 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
  */
 
 func receive(conf *Config, dir string) error {
-
+	wg = sync.WaitGroup{}
 	dir = path.Clean(dir) + "/"
 	fileInfo, err := os.Stat(dir)
 	if err != nil {
@@ -554,6 +588,13 @@ func receive(conf *Config, dir string) error {
 		}
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, err.Error()+"\n")
+		}
+		if receiver.manifest != nil && receiver.manifest.completedFilesCount > 0 && receiver.manifest.completedFilesCount == len(receiver.manifest.files) {
+			fmt.Println("waiting to finalize last file")
+			wg.Wait()
+			if receiver.manifest.completedFilesCount > 0 && receiver.manifest.completedFilesCount == len(receiver.manifest.files) {
+				break
+			}
 		}
 	}
 

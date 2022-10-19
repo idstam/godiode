@@ -1,4 +1,3 @@
-![presentation title page](https://github.com/klockcykel/godiode/raw/main/titlepage.png)
 
 # DIY Data Diode
 Simple DIY gigabit data diode (hardware and software). Presented at SEC-T 2021.
@@ -48,6 +47,12 @@ Usage: godiode <options> send|receive <dir>
     	tmp dir to use (receiver only)
   -verbose
     	verbose output
+  -resendcount
+        how many times to re-transmit from the sender
+  -resendmanifest
+        resend the manifest between every file
+  -fakepacketlosspercent
+        randomly drop packages
 ```
 #### Receiver
 Replace eth0 with nic connected to diode, received data will end up in ./in
