@@ -171,7 +171,7 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		}
 
 		throttle(read)
-		if rand.Intn(100) > 10 {
+		if rand.Intn(100) > conf.PacketLossPercent {
 			c.Write(buff[:(read + 13)])
 		}
 		h.Write(buff[13:(read + 13)])

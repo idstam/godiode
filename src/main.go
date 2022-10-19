@@ -69,6 +69,8 @@ func main() {
 	flag.StringVar(&config.Receiver.TmpDir, "tmpdir", config.Receiver.TmpDir, "tmp dir to use (receiver only)")
 	flag.IntVar(&config.ResendCount, "resendcount", config.ResendCount, "how many times to re-transmit from the sender")
 	flag.BoolVar(&config.ResendManifest, "resendmanifest", config.ResendManifest, "resend the manifest between every file")
+	flag.IntVar(&config.PacketLossPercent, "fakepacketlosspercent", config.PacketLossPercent, "randomly drop packages")
+
 	flag.Parse()
 
 	// load defaults from file
