@@ -14,16 +14,17 @@ type ReceiverConfig struct {
 }
 
 type Config struct {
-	MaxPacketSize  int            `json:"maxPacketSize"`
-	HMACSecret     string         `json:"hmacSecret"`
-	MulticastAddr  string         `json:"multicastAddr"`
-	BindAddr       string         `json:"bindAddr"`
-	NIC            string         `json:"nic"`
-	Verbose        bool           `json:"verbose"`
-	Sender         SenderConfig   `json:"sender"`
-	Receiver       ReceiverConfig `json:"receiver"`
-	ResendCount    int            `json:"resendcount"`
-	ResendManifest bool           `json:"resendmanifest"`
+	MaxPacketSize     int            `json:"maxPacketSize"`
+	HMACSecret        string         `json:"hmacSecret"`
+	MulticastAddr     string         `json:"multicastAddr"`
+	BindAddr          string         `json:"bindAddr"`
+	NIC               string         `json:"nic"`
+	Verbose           bool           `json:"verbose"`
+	Sender            SenderConfig   `json:"sender"`
+	Receiver          ReceiverConfig `json:"receiver"`
+	ResendCount       int            `json:"resendcount"`
+	ResendManifest    bool           `json:"resendmanifest"`
+	PacketLossPercent int            `json:"packetlosspercent"`
 }
 
 var config = Config{
