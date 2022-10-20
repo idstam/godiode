@@ -85,10 +85,9 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		if pt.offset+uint64(read-13) > pt.size {
 			fmt.Printf("Received package %d", packageIndex)
 
-			err := errors.New("Received too much data on file")
+			err := errors.New("received too much data on file")
 			pt.err = &err
 			pt.file.Close()
-			os.Remove(pt.filename)
 			return err
 		}
 		pt.incomplete = false
@@ -193,8 +192,23 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	return nil
 }
 
-func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string) {
+func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFromManifest []byte) {
 	timeTaken := float64(time.Duration.Seconds(time.Since(pft.transferStart)))
+
+	destHash, _ := getFileHash(pft.filename)
+	if destHash != nil {
+		if bytes.Equal(destHash, hashFromManifest) {
+			_ = os.Remove(tmpFile)
+			if r.conf.Verbose {
+				fmt.Println("Received sha matching file. Skip move. " + pft.filename)
+			}
+			return
+		} else {
+			_ = os.Remove(pft.filename)
+		}
+
+	}
+
 	err := os.Rename(tmpFile, pft.filename)
 	if err != nil {
 		//TODO: fallback to copy+rm (file may be located on another fs)
@@ -275,24 +289,17 @@ func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int,
 	}
 
 	tmpFile := path.Join(r.tmpDir, "godiodetmp."+strconv.FormatUint(uint64(manifestId), 16)+"."+strconv.Itoa(pft.fileIndex))
-	f, err := os.Open(tmpFile)
+	tmpHash, err := getFileHash(tmpFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		log.Fatal(err)
-	}
-
 	r.manifest.completedFilesCount++
 	r.manifest.files[pft.fileIndex].complete = true
 
 	//TODO Ta bort dessa två rader. De är till för att förstöra hashen
 	//hashFromManifest[0] = 0
 	//hashFromManifest[1] = 0
-	if !bytes.Equal(hashFromManifest, h.Sum(nil)) {
+	if !bytes.Equal(hashFromManifest, tmpHash) {
 		r.manifest.completedFilesCount--
 		r.manifest.files[pft.fileIndex].complete = false
 		r.manifest.files[pft.fileIndex].nextPackageId = 0
@@ -303,9 +310,23 @@ func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int,
 		return
 	}
 
-	r.moveTmpFile(pft, tmpFile)
+	r.moveTmpFile(pft, tmpFile, hashFromManifest)
 
 	wg.Done()
+}
+
+func getFileHash(tmpFile string) ([]byte, error) {
+	f, err := os.Open(tmpFile)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err = io.Copy(h, f); err != nil {
+		return nil, err
+	}
+	return h.Sum(nil), nil
 }
 func (r *Receiver) createFolders() error {
 	if r.manifest == nil {
