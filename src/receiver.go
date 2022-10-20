@@ -330,6 +330,9 @@ func (r *Receiver) handleManifestReceived() error {
 	if r.conf.Verbose {
 		fmt.Println("Received valid manifest with " + strconv.Itoa(len(r.manifest.dirs)) + " dirs, " + strconv.Itoa(len(r.manifest.files)) + " files")
 	}
+
+	_, _ = cleanCreateTempDir(r.conf, r.dir)
+
 	if r.conf.Receiver.Delete {
 		dm := map[string]bool{}
 		fm := map[string]FileRecord{}
@@ -512,32 +515,9 @@ func receive(conf *Config, dir string) error {
 		return errors.New("Receive dir is not a directory")
 	}
 
-	tmpDir := conf.Receiver.TmpDir
-	if tmpDir == "" {
-		tmpDir = path.Join(dir, ".tmp")
-	}
-	err = os.Mkdir(tmpDir, 0700)
-	if err != nil && !errors.Is(err, fs.ErrExist) {
-		return errors.New("Could not create tmp dir")
-	}
-	fileInfo, err = os.Stat(tmpDir)
+	tmpDir, err := cleanCreateTempDir(conf, dir)
 	if err != nil {
-		return errors.New("Failed to stat tmp dir " + err.Error())
-	}
-	if !fileInfo.IsDir() {
-		return errors.New("Tmp dir is not a directory")
-	}
-	tmpFiles, err := os.ReadDir(tmpDir)
-	if err != nil {
-		return errors.New("Failed to read tmp dir " + err.Error())
-	}
-	for i := range tmpFiles {
-		if strings.HasPrefix(tmpFiles[i].Name(), "godiodetmp.") {
-			err = os.Remove(path.Join(tmpDir, tmpFiles[i].Name()))
-			if err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Failed to remove tmp file: "+tmpFiles[i].Name()+" "+err.Error()+"\n")
-			}
-		}
+		return err
 	}
 
 	maddr, err := net.ResolveUDPAddr("udp", conf.MulticastAddr)
@@ -597,6 +577,38 @@ func receive(conf *Config, dir string) error {
 			}
 		}
 	}
-
+	_, _ = cleanCreateTempDir(conf, dir)
 	return nil
+}
+
+func cleanCreateTempDir(conf *Config, dir string) (string, error) {
+
+	tmpDir := conf.Receiver.TmpDir
+	if tmpDir == "" {
+		tmpDir = path.Join(dir, ".tmp")
+	}
+	err := os.Mkdir(tmpDir, 0700)
+	if err != nil && !errors.Is(err, fs.ErrExist) {
+		return "", errors.New("Could not create tmp dir")
+	}
+	fileInfo, err := os.Stat(tmpDir)
+	if err != nil {
+		return "", errors.New("Failed to stat tmp dir " + err.Error())
+	}
+	if !fileInfo.IsDir() {
+		return "", errors.New("Tmp dir is not a directory")
+	}
+	tmpFiles, err := os.ReadDir(tmpDir)
+	if err != nil {
+		return "", errors.New("Failed to read tmp dir " + err.Error())
+	}
+	for i := range tmpFiles {
+		if strings.HasPrefix(tmpFiles[i].Name(), "godiodetmp.") {
+			err = os.Remove(path.Join(tmpDir, tmpFiles[i].Name()))
+			if err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "Failed to remove tmp file: "+tmpFiles[i].Name()+" "+err.Error()+"\n")
+			}
+		}
+	}
+	return tmpDir, err
 }
