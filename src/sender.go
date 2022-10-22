@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
 	"encoding/hex"
@@ -147,20 +146,16 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	copy(buff[26:], mac.Sum(nil))
 	c.Write(buff[:26+64])
 
-	h := sha256.New()
-
 	time.Sleep(50 * time.Millisecond)
 
-	//buffOut := make([]byte, MAX_PACKET_SIZE)
-	//buff[0] = 0x7F //JSI
 	buff[0] = 0x80
-	var packetIndex uint32 //JSI
+	var packetIndex uint32
 
 	//	pos := 0
 	for {
 		binary.BigEndian.PutUint32(buff[1:], manifestId)
 		binary.BigEndian.PutUint32(buff[5:], fIndex)
-		binary.BigEndian.PutUint32(buff[9:], packetIndex) //JSI
+		binary.BigEndian.PutUint32(buff[9:], packetIndex)
 		read, err := file.Read(buff[13:])
 		//		fmt.Println("read=%d", read, err)
 		if read == 0 {
@@ -171,14 +166,13 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		}
 
 		throttle(read)
-		if rand.Intn(100) > conf.PacketLossPercent {
+		if conf.PacketLossPercent == 0 || rand.Intn(100) > conf.PacketLossPercent {
 			c.Write(buff[:(read + 13)])
 		}
-		h.Write(buff[13:(read + 13)])
-		packetIndex++ //JSI
+		packetIndex++
 	}
 
-	hs := h.Sum(nil)
+	hs, _ := getFileHash(f)
 
 	buff[0] = 0x03
 	binary.BigEndian.PutUint32(buff[1:], manifestId)

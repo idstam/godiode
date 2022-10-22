@@ -66,7 +66,6 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		return nil
 	}
 
-	//idx := buff[0] & 0x7F  //JSI
 	manifestId := binary.BigEndian.Uint32(buff[1:])
 	fileIndex := binary.BigEndian.Uint32(buff[5:])
 	packageIndex := binary.BigEndian.Uint32(buff[9:])
@@ -79,8 +78,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		return nil
 	}
 
-	//if idx == pt.index { //JSI
-	if packageIndex == pt.index { //JSI
+	if packageIndex == pt.index {
 		//check out of order packets
 		if pt.offset+uint64(read-13) > pt.size {
 			fmt.Printf("Received package %d", packageIndex)
@@ -93,7 +91,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		pt.incomplete = false
 		pt.hash.Write(buff[13:read])
 		pt.file.Write(buff[13:read])
-		//pt.index = (pt.index + 1) & 0x7F  //JSI
+
 		pt.index++
 		r.manifest.files[fileIndex].nextPackageId = pt.index
 		pt.offset += uint64(read - 13)
