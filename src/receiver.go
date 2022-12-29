@@ -79,7 +79,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 	}
 
 	if packageIndex == pt.index {
-		//check out of order packets
+		//check out-of-order packets
 		if pt.offset+uint64(read-13) > pt.size {
 			fmt.Printf("Received package %d", packageIndex)
 
@@ -127,7 +127,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
  */
 func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	if read < 1+1+4+4+8+8+64 {
-		return errors.New("Received truncated file transfer start packet")
+		return errors.New("received truncated file transfer start packet")
 	}
 	if r.pendingFileTransfer != nil {
 		//TODO: check if same file
@@ -137,7 +137,7 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	}
 
 	if r.manifest == nil {
-		return errors.New("Received file transfer start packet without pending manifest")
+		return errors.New("received file transfer start packet without pending manifest")
 	}
 
 	if buff[1] != 0 {
@@ -151,7 +151,7 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 
 	fileIndex := int(binary.BigEndian.Uint32(buff[6:]))
 	if fileIndex < 0 || fileIndex >= len(r.manifest.files) {
-		return errors.New("Ignoring file transfer start for invalid file index")
+		return errors.New("ignoring file transfer start for invalid file index")
 	}
 
 	mf := r.manifest.files[fileIndex]
@@ -159,7 +159,7 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	//sanitize path
 	fp := path.Clean(r.dir + mf.path)
 	if fp == "." {
-		return errors.New("Invalid file path name")
+		return errors.New("invalid file path name")
 	}
 
 	size := binary.BigEndian.Uint64(buff[10:])
@@ -192,7 +192,7 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 }
 
 func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFromManifest string) {
-	timeTaken := float64(time.Duration.Seconds(time.Since(pft.transferStart)))
+	timeTaken := time.Duration.Seconds(time.Since(pft.transferStart))
 
 	destHash, _ := getFileHash(pft.filename)
 	if destHash != nil {
@@ -219,7 +219,7 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 		fmt.Fprintf(os.Stderr, "Failed to set mtime on "+pft.filename+"\n")
 	}
 	if r.conf.Verbose {
-		var speed int = 0
+		var speed = 0
 		if timeTaken > 0 {
 			speed = int(math.Round(float64((8*pft.size)/1000) / timeTaken))
 		}
@@ -240,25 +240,25 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
  */
 func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 	if read < 1+4+4+32+64 {
-		return errors.New("Received truncated file transfer complete packet")
+		return errors.New("received truncated file transfer complete packet")
 	}
 
 	pft := r.pendingFileTransfer
 	if pft == nil {
-		return errors.New("Received file transfer complete packet without pending transfer")
+		return errors.New("received file transfer complete packet without pending transfer")
 	}
 
 	offset := 1
 	manifestId := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
 	if manifestId != r.manifestId {
-		return errors.New("Ignoring file transfer complete for another manifest " + strconv.Itoa(manifestId) + " " + strconv.Itoa(manifestId))
+		return errors.New("ignoring file transfer complete for another manifest " + strconv.Itoa(manifestId) + " " + strconv.Itoa(manifestId))
 	}
 
 	fileIndex := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
 	if fileIndex != pft.fileIndex {
-		return errors.New("Ignoring file transfer complete for other file than the current pending")
+		return errors.New("ignoring file transfer complete for other file than the current pending")
 	}
 
 	hashFromManifest := hex.EncodeToString(buff[offset : offset+32])
@@ -341,7 +341,7 @@ func getFileHash(tmpFile string) ([]byte, error) {
 }
 func (r *Receiver) createFolders() error {
 	if r.manifest == nil {
-		return errors.New("No manifest")
+		return errors.New("no manifest")
 	}
 	for d := range r.manifest.dirs {
 		p := r.dir + path.Clean(r.manifest.dirs[d].path)
@@ -454,7 +454,7 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 		} else {
 			if part != pmt.index {
 				r.pendingManifestTransfer = nil
-				return errors.New("Received out of order manifest packet")
+				return errors.New("received out of order manifest packet")
 			}
 			read = copy(pmt.buff[pmt.offset:], buff[7:read])
 			pmt.offset += read
@@ -479,11 +479,11 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 	}
 	if pmt == nil {
 		if part != 0 {
-			return errors.New("Unexpected manifest part received")
+			return errors.New("unexpected manifest part received")
 		}
 		size := int(binary.BigEndian.Uint32(buff[7:]))
 		if size > 5*1024*1024 || size < 1 {
-			return errors.New("Too large manifest")
+			return errors.New("too large manifest")
 		}
 		r.manifestId = manifestId
 		manifestData := make([]byte, size)
@@ -544,7 +544,7 @@ func receive(conf *Config, dir string) error {
 		return errors.New("Failed to stat receive dir " + err.Error())
 	}
 	if !fileInfo.IsDir() {
-		return errors.New("Receive dir is not a directory")
+		return errors.New("receive dir is not a directory")
 	}
 
 	tmpDir, err := cleanCreateTempDir(conf, dir)
@@ -624,24 +624,24 @@ func cleanCreateTempDir(conf *Config, dir string) (string, error) {
 	}
 	err := os.Mkdir(tmpDir, 0700)
 	if err != nil && !errors.Is(err, fs.ErrExist) {
-		return "", errors.New("Could not create tmp dir")
+		return "", errors.New("could not create tmp dir")
 	}
 	fileInfo, err := os.Stat(tmpDir)
 	if err != nil {
-		return "", errors.New("Failed to stat tmp dir " + err.Error())
+		return "", errors.New("failed to stat tmp dir " + err.Error())
 	}
 	if !fileInfo.IsDir() {
-		return "", errors.New("Tmp dir is not a directory")
+		return "", errors.New("tmp dir is not a directory")
 	}
 	tmpFiles, err := os.ReadDir(tmpDir)
 	if err != nil {
-		return "", errors.New("Failed to read tmp dir " + err.Error())
+		return "", errors.New("failed to read tmp dir " + err.Error())
 	}
 	for i := range tmpFiles {
 		if strings.HasPrefix(tmpFiles[i].Name(), "godiodetmp.") {
 			err = os.Remove(path.Join(tmpDir, tmpFiles[i].Name()))
 			if err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Failed to remove tmp file: "+tmpFiles[i].Name()+" "+err.Error()+"\n")
+				_, _ = fmt.Fprintf(os.Stderr, "failed to remove tmp file: "+tmpFiles[i].Name()+" "+err.Error()+"\n")
 			}
 		}
 	}
