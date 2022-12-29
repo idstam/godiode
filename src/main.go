@@ -90,8 +90,8 @@ func main() {
 	if len(os.Args) < 3 {
 		usageError("Missing required arguments")
 	}
-	sender := (os.Args[len(os.Args)-2] == "send")
-	receiver := (os.Args[len(os.Args)-2] == "receive")
+	sender := os.Args[len(os.Args)-2] == "send"
+	receiver := os.Args[len(os.Args)-2] == "receive"
 	if !sender && !receiver {
 		usageError("Missing required send|receive command")
 	}
