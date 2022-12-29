@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
 	"encoding/hex"
@@ -172,7 +173,11 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		packetIndex++
 	}
 
-	hs, _ := getFileHash(f)
+	file.Close()
+	hs, err := getSendFileHash(f)
+	if err != nil {
+		return err
+	}
 
 	buff[0] = 0x03
 	binary.BigEndian.PutUint32(buff[1:], manifestId)
@@ -274,7 +279,7 @@ func send(conf *Config, dir string) error {
 
 	for rs := 0; rs < conf.ResendCount; rs++ {
 		// wait some to let the receiver create dirs etc
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(2000 * time.Millisecond)
 
 		finfo, err := os.Stat(dir)
 		if err != nil {
@@ -289,14 +294,17 @@ func send(conf *Config, dir string) error {
 
 			dir = path.Clean(dir) + "/"
 
+			sentSize := int64(0)
 			for i := 0; i < len(manifest.files); i++ {
+
 				err = sendFile(conf, c, manifestId, uint32(i), dir+manifest.files[i].path)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error sending file: "+manifest.files[i].path+" "+err.Error()+"\n")
 					continue
 				}
-
-				if conf.ResendManifest {
+				sentSize += manifest.files[i].size
+				if conf.ResendManifest && sentSize > (10*1028*1028) { //We do not want to saturate the channel with manifest data when there are lots of small files to send.
+					sentSize = 0
 					err = sendManifest(conf, c, manifest, manifestId)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Error sending manifest: "+err.Error()+"\n")
@@ -312,4 +320,17 @@ func send(conf *Config, dir string) error {
 		}
 	}
 	return nil
+}
+func getSendFileHash(tmpFile string) ([]byte, error) {
+	f, err := os.Open(tmpFile)
+	if err != nil {
+		return nil, fmt.Errorf("getSendFileHash %s", err.Error())
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err = io.Copy(h, f); err != nil {
+		return nil, fmt.Errorf("getSendFileHash %s", err.Error())
+	}
+	return h.Sum(nil), nil
 }
