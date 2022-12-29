@@ -70,7 +70,7 @@ func main() {
 	flag.IntVar(&config.ResendCount, "resendcount", config.ResendCount, "how many times to re-transmit from the sender")
 	flag.BoolVar(&config.ResendManifest, "resendmanifest", config.ResendManifest, "resend the manifest between every file")
 	flag.IntVar(&config.PacketLossPercent, "fakepacketlosspercent", config.PacketLossPercent, "randomly drop packages")
-
+	flag.BoolVar(&config.KeepBrokenFiles, "keepbrokenfiles", config.KeepBrokenFiles, "rename broken temp files instead of deleting them")
 	flag.Parse()
 
 	// load defaults from file

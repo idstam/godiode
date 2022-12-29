@@ -310,9 +310,12 @@ func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int,
 		r.manifest.completedFilesCount--
 		r.manifest.files[pft.fileIndex].complete = false
 		r.manifest.files[pft.fileIndex].nextPackageId = 0
-		os.Rename(tmpFile, tmpFile+".broken")
-		//os.Remove(tmpFile)
-		//return errors.New("Data checksum error for received file " + pft.filename)
+
+		if r.conf.KeepBrokenFiles {
+			os.Rename(tmpFile, tmpFile+".broken")
+		} else {
+			os.Remove(tmpFile)
+		}
 		fmt.Printf("data checksum error for received file %s \n", pft.filename)
 		wg.Done()
 		return

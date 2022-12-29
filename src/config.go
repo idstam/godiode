@@ -25,6 +25,7 @@ type Config struct {
 	ResendCount       int            `json:"resendcount"`
 	ResendManifest    bool           `json:"resendmanifest"`
 	PacketLossPercent int            `json:"packetlosspercent"`
+	KeepBrokenFiles   bool           `json:"keepbrokenfiles"`
 }
 
 var config = Config{
