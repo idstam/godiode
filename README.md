@@ -15,6 +15,7 @@ My (@idstam) changes makes this a little less PoC and more robust for production
  -  resend everything with the same manifest to handle package loss
  -  randomly drop packages for testing purposes
  -  don't overwrite already received files if they are the same
+ -  keep running the receiver until all files are received
 
 ### Build instructions
 With local golang available
