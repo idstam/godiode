@@ -86,6 +86,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 			err := errors.New("received too much data on file")
 			pt.err = &err
 			pt.file.Close()
+			os.Remove(pt.filename)
 			return err
 		}
 		pt.incomplete = false
@@ -190,12 +191,12 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	return nil
 }
 
-func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFromManifest []byte) {
+func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFromManifest string) {
 	timeTaken := float64(time.Duration.Seconds(time.Since(pft.transferStart)))
 
 	destHash, _ := getFileHash(pft.filename)
 	if destHash != nil {
-		if bytes.Equal(destHash, hashFromManifest) {
+		if hex.EncodeToString(destHash) == hashFromManifest {
 			_ = os.Remove(tmpFile)
 			if r.conf.Verbose {
 				fmt.Println("Received sha matching file. Skip move. " + pft.filename)
@@ -260,7 +261,7 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 		return errors.New("Ignoring file transfer complete for other file than the current pending")
 	}
 
-	hashFromManifest := buff[offset : offset+32]
+	hashFromManifest := hex.EncodeToString(buff[offset : offset+32])
 	offset += 32
 
 	h512 := sha512.New()
@@ -271,6 +272,7 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 		return errors.New("Invalid signature in file complete packet for file " + pft.filename)
 	}
 
+	pft.file.Sync()
 	pft.file.Close()
 
 	wg.Add(1)
@@ -280,28 +282,36 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 	return nil
 }
 
-func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int, hashFromManifest []byte) {
+func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int, hashFromManifest string) {
 	if pft.incomplete {
 		wg.Done()
 		return
 	}
 
 	tmpFile := path.Join(r.tmpDir, "godiodetmp."+strconv.FormatUint(uint64(manifestId), 16)+"."+strconv.Itoa(pft.fileIndex))
+	fi, err := os.Stat(tmpFile)
+	if err == nil {
+		if int64(pft.size) != fi.Size() {
+			wg.Done()
+			return
+		}
+	}
 	tmpHash, err := getFileHash(tmpFile)
 	if err != nil {
+		wg.Done()
 		log.Fatal(err)
 	}
+
 	r.manifest.completedFilesCount++
 	r.manifest.files[pft.fileIndex].complete = true
 
-	//TODO Ta bort dessa två rader. De är till för att förstöra hashen
-	//hashFromManifest[0] = 0
-	//hashFromManifest[1] = 0
-	if !bytes.Equal(hashFromManifest, tmpHash) {
+	if hashFromManifest != hex.EncodeToString(tmpHash) {
+
 		r.manifest.completedFilesCount--
 		r.manifest.files[pft.fileIndex].complete = false
 		r.manifest.files[pft.fileIndex].nextPackageId = 0
-		os.Remove(tmpFile)
+		os.Rename(tmpFile, tmpFile+".broken")
+		//os.Remove(tmpFile)
 		//return errors.New("Data checksum error for received file " + pft.filename)
 		fmt.Printf("data checksum error for received file %s \n", pft.filename)
 		wg.Done()
@@ -586,7 +596,10 @@ func receive(conf *Config, dir string) error {
 			err = receiver.onManifestPacket(buff, read)
 		}
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, err.Error()+"\n")
+			fmt.Fprintf(os.Stderr, err.Error()+"\n")
+			if conf.Verbose {
+				_, _ = fmt.Fprintf(os.Stderr, err.Error()+"\n")
+			}
 		}
 		if receiver.manifest != nil && receiver.manifest.completedFilesCount > 0 && receiver.manifest.completedFilesCount == len(receiver.manifest.files) {
 			fmt.Println("waiting to finalize last file")
