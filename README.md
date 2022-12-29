@@ -8,6 +8,14 @@ By doing a simple hardware mod to a fiber converter you can build your own data 
 ## Software
 PoC golang code for reliable file transfers over a data diode. With recommended OS optimizations it should reach 750+ Mbit/s file transfers.
 
+My (@idstam) changes makes this a little less PoC and more robust for production use. 
+
+ -  added resending of the manifest to enable starting a listener in the middle of a sending session.
+ -  keep received data and continue appending on resend to handle package loss within a file
+ -  resend everything with the same manifest to handle package loss
+ -  randomly drop packages for testing purposes
+ -  don't overwrite already received files if they are the same
+
 ### Build instructions
 With local golang available
 ```
@@ -53,6 +61,8 @@ Usage: godiode <options> send|receive <dir>
         resend the manifest between every file
   -fakepacketlosspercent
         randomly drop packages
+  -keepbrokenfiles
+        rename broken received temp files instead of deleting them
 ```
 #### Receiver
 Replace eth0 with nic connected to diode, received data will end up in ./in
