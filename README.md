@@ -64,6 +64,8 @@ Usage: godiode <options> send|receive <dir>
         randomly drop packages
   -keepbrokenfiles
         rename broken received temp files instead of deleting them
+  -savemanifestpath string
+        save the transfer manifest to disk, works both both ends
 ```
 #### Receiver
 Replace eth0 with nic connected to diode, received data will end up in ./in

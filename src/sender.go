@@ -34,15 +34,15 @@ var THROTTLE = struct {
  * type - uint8
  *   0x01 - manifest
  *   0x02 - file transfer start
- *   0x03 - file transfer complete
+ *   0x03 - file transfer Complete
  *   0x80-0xFF - file transfer data
  *
  * manifest
- * | type | id | part | [size] | payload
+ * | type | id | part | [Size] | payload
  * type - uint8 - 0x01
  * id - uint32 - manifest session id
  * part - uint16 - manifest session part index
- * size - uint32 - total manifest size, only sent in part 0
+ * Size - uint32 - total manifest Size, only sent in part 0
  * payload | manifest chunk
  *
  */
@@ -53,7 +53,7 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
 	}
 
 	if conf.MaxPacketSize < 14 {
-		return errors.New("Too small packet max size for sending manifest")
+		return errors.New("Too small packet max Size for sending manifest")
 	}
 	manifestData, err := manifest.serializeManifest(conf.HMACSecret)
 	if err != nil {
@@ -94,7 +94,7 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
  * filetype - uint8 - 0x00 (regular file)
  * manifestSessionId - uint32 - manifest session id
  * fileIndex - uint32 - file index in the manifest
- * size - uint64 - size of file in bytes
+ * Size - uint64 - Size of file in bytes
  * mtime - int64 - unix millis
  * sign - byte[64] - hmac512 of this packet
  *
@@ -105,11 +105,11 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
  * manifestSessionId - uint32 - manifest session id
  * fileIndex - uint32 - file index in the manifest
  * packageIndex - uint32
- * data - up to max payload size
+ * data - up to max payload Size
  *
  *
  *
- * file transfer complete packet
+ * file transfer Complete packet
  *
  * type - uint8 - 0x03
  * manifestSessionId - uint32 - manifest session id
@@ -230,13 +230,13 @@ func send(conf *Config, dir string) error {
 
 	dir = path.Clean(dir)
 
-	manifest, err := generateManifest(dir)
+	manifest, err := generateManifest(dir, conf.SaveManifestPath)
 	if err != nil {
 		return err
 	}
 
-	if len(manifest.files) == 0 && len(manifest.dirs) == 0 {
-		return errors.New("No files to send")
+	if len(manifest.Files) == 0 && len(manifest.Dirs) == 0 {
+		return errors.New("No Files to send")
 	}
 
 	maddr, err := net.ResolveUDPAddr("udp", conf.MulticastAddr)
@@ -278,7 +278,7 @@ func send(conf *Config, dir string) error {
 	//	log.Println(THROTTLE.nsPerToken, THROTTLE.capacity, THROTTLE.tokens, THROTTLE.last)
 
 	for rs := 0; rs < conf.ResendCount; rs++ {
-		// wait some to let the receiver create dirs etc
+		// wait some to let the receiver create Dirs etc
 		time.Sleep(2000 * time.Millisecond)
 
 		finfo, err := os.Stat(dir)
@@ -295,15 +295,15 @@ func send(conf *Config, dir string) error {
 			dir = path.Clean(dir) + "/"
 
 			sentSize := int64(0)
-			for i := 0; i < len(manifest.files); i++ {
+			for i := 0; i < len(manifest.Files); i++ {
 
-				err = sendFile(conf, c, manifestId, uint32(i), dir+manifest.files[i].path)
+				err = sendFile(conf, c, manifestId, uint32(i), dir+manifest.Files[i].Path)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error sending file: "+manifest.files[i].path+" "+err.Error()+"\n")
+					fmt.Fprintf(os.Stderr, "Error sending file: "+manifest.Files[i].Path+" "+err.Error()+"\n")
 					continue
 				}
-				sentSize += manifest.files[i].size
-				if conf.ResendManifest && sentSize > (10*1028*1028) { //We do not want to saturate the channel with manifest data when there are lots of small files to send.
+				sentSize += manifest.Files[i].Size
+				if conf.ResendManifest && sentSize > (10*1028*1028) { //We do not want to saturate the channel with manifest data when there are lots of small Files to send.
 					sentSize = 0
 					err = sendManifest(conf, c, manifest, manifestId)
 					if err != nil {
@@ -316,7 +316,7 @@ func send(conf *Config, dir string) error {
 		}
 
 		if conf.Verbose {
-			fmt.Printf("All files sent. Transmission %d of %d \n", rs+1, conf.ResendCount)
+			fmt.Printf("All Files sent. Transmission %d of %d \n", rs+1, conf.ResendCount)
 		}
 	}
 	return nil

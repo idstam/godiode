@@ -26,6 +26,7 @@ type Config struct {
 	ResendManifest    bool           `json:"resendmanifest"`
 	PacketLossPercent int            `json:"packetlosspercent"`
 	KeepBrokenFiles   bool           `json:"keepbrokenfiles"`
+	SaveManifestPath  string         `json:"savemanifestpath"`
 }
 
 var config = Config{

@@ -94,14 +94,14 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		pt.file.Write(buff[13:read])
 
 		pt.index++
-		r.manifest.files[fileIndex].nextPackageId = pt.index
+		r.manifest.Files[fileIndex].NextPackageId = pt.index
 		pt.offset += uint64(read - 13)
 		pt.rawSize += uint64(HEADER_OVERHEAD + read)
 		if pt.offset == uint64(read-13) && r.conf.Verbose {
 			//			fmt.Println("Received first byte of data of " + pt.filename)
 		}
 		if pt.offset == pt.size {
-			//done, wait for file complete packet
+			//done, wait for file Complete packet
 		}
 	} else {
 		//log.Fatal("Received out of order packet ", ptype&0x7F, pt.index, pt.offset)
@@ -121,7 +121,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
  * filetype - uint8 - (regular file)
  * manifestSessionId - uint32 - manifest session id
  * fileIndex - uint32 - file index in the manifest
- * size - uint64 - size of file in bytes
+ * Size - uint64 - Size of file in bytes
  * mtime - int64 - unix millis
  * sign - byte[64] - hmac512 of this header
  */
@@ -150,16 +150,16 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	}
 
 	fileIndex := int(binary.BigEndian.Uint32(buff[6:]))
-	if fileIndex < 0 || fileIndex >= len(r.manifest.files) {
+	if fileIndex < 0 || fileIndex >= len(r.manifest.Files) {
 		return errors.New("ignoring file transfer start for invalid file index")
 	}
 
-	mf := r.manifest.files[fileIndex]
+	mf := r.manifest.Files[fileIndex]
 
-	//sanitize path
-	fp := path.Clean(r.dir + mf.path)
+	//sanitize Path
+	fp := path.Clean(r.dir + mf.Path)
 	if fp == "." {
-		return errors.New("invalid file path name")
+		return errors.New("invalid file Path name")
 	}
 
 	size := binary.BigEndian.Uint64(buff[10:])
@@ -185,8 +185,8 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 		transferStart: time.Now(),
 		filename:      fp,
 		fileIndex:     fileIndex,
-		modts:         mf.modts,
-		index:         mf.nextPackageId,
+		modts:         mf.Modts,
+		index:         mf.NextPackageId,
 	}
 	return nil
 }
@@ -205,7 +205,6 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 		} else {
 			_ = os.Remove(pft.filename)
 		}
-
 	}
 
 	err := os.Rename(tmpFile, pft.filename)
@@ -224,13 +223,13 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 			speed = int(math.Round(float64((8*pft.size)/1000) / timeTaken))
 		}
 		h := pft.hash.Sum(nil)
-		fmt.Println("Successfully received " + pft.filename + ", checksum=" + hex.EncodeToString(h) + " size=" + strconv.FormatInt(int64(pft.size), 10) + " " + strconv.Itoa(speed) + "kbit/s")
+		fmt.Println("Successfully received " + pft.filename + ", checksum=" + hex.EncodeToString(h) + " Size=" + strconv.FormatInt(int64(pft.size), 10) + " " + strconv.Itoa(speed) + "kbit/s")
 	}
 	return
 }
 
 /*
- * file transfer complete packet
+ * file transfer Complete packet
  *
  * type - uint8 - 0x03
  * manifestSessionId - uint32 - manifest session id
@@ -240,25 +239,25 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
  */
 func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 	if read < 1+4+4+32+64 {
-		return errors.New("received truncated file transfer complete packet")
+		return errors.New("received truncated file transfer Complete packet")
 	}
 
 	pft := r.pendingFileTransfer
 	if pft == nil {
-		return errors.New("received file transfer complete packet without pending transfer")
+		return errors.New("received file transfer Complete packet without pending transfer")
 	}
 
 	offset := 1
 	manifestId := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
 	if manifestId != r.manifestId {
-		return errors.New("ignoring file transfer complete for another manifest " + strconv.Itoa(manifestId) + " " + strconv.Itoa(manifestId))
+		return errors.New("ignoring file transfer Complete for another manifest " + strconv.Itoa(manifestId) + " " + strconv.Itoa(manifestId))
 	}
 
 	fileIndex := int(binary.BigEndian.Uint32(buff[offset:]))
 	offset += 4
 	if fileIndex != pft.fileIndex {
-		return errors.New("ignoring file transfer complete for other file than the current pending")
+		return errors.New("ignoring file transfer Complete for other file than the current pending")
 	}
 
 	hashFromManifest := hex.EncodeToString(buff[offset : offset+32])
@@ -269,7 +268,7 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 	mac := hmac.New(sha512.New, h512.Sum(nil))
 	mac.Write(buff[:offset])
 	if !bytes.Equal(mac.Sum(nil), buff[offset:offset+64]) {
-		return errors.New("Invalid signature in file complete packet for file " + pft.filename)
+		return errors.New("Invalid signature in file Complete packet for file " + pft.filename)
 	}
 
 	pft.file.Sync()
@@ -302,14 +301,14 @@ func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int,
 		log.Fatal(err)
 	}
 
-	r.manifest.completedFilesCount++
-	r.manifest.files[pft.fileIndex].complete = true
+	r.manifest.CompletedFilesCount++
+	r.manifest.Files[pft.fileIndex].Complete = true
 
 	if hashFromManifest != hex.EncodeToString(tmpHash) {
 
-		r.manifest.completedFilesCount--
-		r.manifest.files[pft.fileIndex].complete = false
-		r.manifest.files[pft.fileIndex].nextPackageId = 0
+		r.manifest.CompletedFilesCount--
+		r.manifest.Files[pft.fileIndex].Complete = false
+		r.manifest.Files[pft.fileIndex].NextPackageId = 0
 
 		if r.conf.KeepBrokenFiles {
 			os.Rename(tmpFile, tmpFile+".broken")
@@ -343,13 +342,13 @@ func (r *Receiver) createFolders() error {
 	if r.manifest == nil {
 		return errors.New("no manifest")
 	}
-	for d := range r.manifest.dirs {
-		p := r.dir + path.Clean(r.manifest.dirs[d].path)
+	for d := range r.manifest.Dirs {
+		p := r.dir + path.Clean(r.manifest.Dirs[d].Path)
 		err := os.MkdirAll(p, r.conf.Receiver.FolderPermission)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating dir "+p+"\n")
 		} else {
-			err = os.Chtimes(p, time.Unix(int64(r.manifest.dirs[d].modts), 0), time.Unix(int64(r.manifest.dirs[d].modts), 0))
+			err = os.Chtimes(p, time.Unix(int64(r.manifest.Dirs[d].Modts), 0), time.Unix(int64(r.manifest.Dirs[d].Modts), 0))
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to set mtime on "+p+"\n")
 			}
@@ -360,8 +359,10 @@ func (r *Receiver) createFolders() error {
 
 func (r *Receiver) handleManifestReceived() error {
 	if r.conf.Verbose {
-		fmt.Println("Received valid manifest with " + strconv.Itoa(len(r.manifest.dirs)) + " dirs, " + strconv.Itoa(len(r.manifest.files)) + " files")
+		fmt.Println("Received valid manifest with " + strconv.Itoa(len(r.manifest.Dirs)) + " Dirs, " + strconv.Itoa(len(r.manifest.Files)) + " Files")
 	}
+
+	saveManifest(r.conf.SaveManifestPath, *r.manifest)
 
 	_, _ = cleanCreateTempDir(r.conf, r.dir)
 
@@ -386,11 +387,11 @@ func (r *Receiver) handleManifestReceived() error {
 			}
 			return nil
 		})
-		for i := range r.manifest.files {
-			f, exists := fm[r.manifest.files[i].path]
-			if exists && f.size == r.manifest.files[i].size && f.modts == r.manifest.files[i].modts {
+		for i := range r.manifest.Files {
+			f, exists := fm[r.manifest.Files[i].Path]
+			if exists && f.Size == r.manifest.Files[i].Size && f.Modts == r.manifest.Files[i].Modts {
 				//keep this file
-				delete(fm, r.manifest.files[i].path)
+				delete(fm, r.manifest.Files[i].Path)
 			}
 		}
 		for f, _ := range fm {
@@ -402,11 +403,11 @@ func (r *Receiver) handleManifestReceived() error {
 			}
 		}
 
-		for i := range r.manifest.dirs {
-			_, exists := dm[r.manifest.dirs[i].path]
+		for i := range r.manifest.Dirs {
+			_, exists := dm[r.manifest.Dirs[i].Path]
 			if exists {
 				//keep this dir
-				delete(dm, r.manifest.dirs[i].path)
+				delete(dm, r.manifest.Dirs[i].Path)
 			}
 		}
 		for d, _ := range dm {
@@ -426,11 +427,11 @@ func (r *Receiver) handleManifestReceived() error {
 
 /**
  * manifest record
- * | type | id | part | [size] | payload
+ * | type | id | part | [Size] | payload
  * type - uint8 - 0x01
  * id - uint32 - manifest session id
  * part - uint16 - manifest session part index
- * size - uint32 - total manifest size, only sent in part 0
+ * Size - uint32 - total manifest Size, only sent in part 0
  * payload | manifest chunk
  *
  */
@@ -521,17 +522,17 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
  *   0x80-0xFF - file transfer data
  *
  * manifest
- * | type | id | part | [size] | payload
+ * | type | id | part | [Size] | payload
  * type - uint8 - 0x01
  * id - uint16 - manifest session id
  * part - uint16 - manifest session part index
- * size - uint32 - total manifest size (including signature), only sent in part 0
+ * Size - uint32 - total manifest Size (including signature), only sent in part 0
  * payload | <utf8-json> + \n + hmac signature asciihex
  *
  * file transfer start
- * | filename | type | size | mtime | sign |
+ * | filename | type | Size | mtime | sign |
  * type - uint8 - 0x02 (regular file)
- * size - uint64 - size of file in bytes
+ * Size - uint64 - Size of file in bytes
  * mtime - uint64 - unix millis
  * sign - byte[64] - hmac512 of this header
  */
@@ -604,10 +605,10 @@ func receive(conf *Config, dir string) error {
 				_, _ = fmt.Fprintf(os.Stderr, err.Error()+"\n")
 			}
 		}
-		if receiver.manifest != nil && receiver.manifest.completedFilesCount > 0 && receiver.manifest.completedFilesCount == len(receiver.manifest.files) {
+		if receiver.manifest != nil && receiver.manifest.CompletedFilesCount > 0 && receiver.manifest.CompletedFilesCount == len(receiver.manifest.Files) {
 			fmt.Println("waiting to finalize last file")
 			wg.Wait()
-			if receiver.manifest.completedFilesCount > 0 && receiver.manifest.completedFilesCount == len(receiver.manifest.files) {
+			if receiver.manifest.CompletedFilesCount > 0 && receiver.manifest.CompletedFilesCount == len(receiver.manifest.Files) {
 				break
 			}
 		}
