@@ -338,9 +338,10 @@ func getFileHash(tmpFile string) ([]byte, error) {
 	}
 	return h.Sum(nil), nil
 }
-func (r *Receiver) createFolders() error {
+func (r *Receiver) createFolders() {
 	if r.manifest == nil {
-		return errors.New("no manifest")
+		fmt.Fprintf(os.Stderr, "no manifest \n")
+		return
 	}
 	for d := range r.manifest.Dirs {
 		p := r.dir + path.Clean(r.manifest.Dirs[d].Path)
@@ -354,7 +355,7 @@ func (r *Receiver) createFolders() error {
 			}
 		}
 	}
-	return nil
+	return
 }
 
 func (r *Receiver) handleManifestReceived() error {
@@ -421,8 +422,8 @@ func (r *Receiver) handleManifestReceived() error {
 			}
 		}
 	}
-	err := r.createFolders()
-	return err
+	go r.createFolders()
+	return nil
 }
 
 /**
