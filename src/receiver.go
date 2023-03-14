@@ -209,13 +209,23 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 
 	err := os.Rename(tmpFile, pft.filename)
 	if err != nil {
-		//TODO: fallback to copy+rm (file may be located on another fs)
-		fmt.Fprintf(os.Stderr, "Failed to move tmp file "+pft.filename+" "+err.Error()+"\n")
-		return
+		source, err := os.Open(tmpFile)
+		destination, err := os.Create(pft.filename)
+
+		_, err = io.Copy(destination, source)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Failed to move tmp file "+pft.filename+" "+err.Error()+"\n")
+			return
+		}
+		_ = os.Remove(tmpFile)
+
+		_ = source.Close()
+		_ = destination.Close()
 	}
+
 	err = os.Chtimes(pft.filename, time.Unix(int64(pft.modts), 0), time.Unix(int64(pft.modts), 0))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to set mtime on "+pft.filename+"\n")
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to set mtime on "+pft.filename+"\n")
 	}
 	if r.conf.Verbose {
 		var speed = 0
@@ -301,26 +311,21 @@ func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int,
 		log.Fatal(err)
 	}
 
-	r.manifest.CompletedFilesCount++
-	r.manifest.Files[pft.fileIndex].Complete = true
-
 	if hashFromManifest != hex.EncodeToString(tmpHash) {
-
-		r.manifest.CompletedFilesCount--
 		r.manifest.Files[pft.fileIndex].Complete = false
 		r.manifest.Files[pft.fileIndex].NextPackageId = 0
-
 		if r.conf.KeepBrokenFiles {
 			os.Rename(tmpFile, tmpFile+".broken")
 		} else {
 			os.Remove(tmpFile)
 		}
 		fmt.Printf("data checksum error for received file %s \n", pft.filename)
-		wg.Done()
-		return
-	}
 
-	r.moveTmpFile(pft, tmpFile, hashFromManifest)
+	} else {
+		r.manifest.CompletedFilesCount++
+		r.manifest.Files[pft.fileIndex].Complete = true
+		r.moveTmpFile(pft, tmpFile, hashFromManifest)
+	}
 
 	wg.Done()
 }

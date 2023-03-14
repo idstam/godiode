@@ -1,3 +1,3 @@
-module klockcykel.se/godiode
+module idstam.com/godiode
 
-go 1.17
+go 1.19
