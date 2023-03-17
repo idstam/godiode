@@ -1,0 +1,194 @@
+diff --git a/src/main.go b/src/main.go
+index 63c8a64..f3eca1b 100644
+--- a/src/main.go
++++ b/src/main.go
+@@ -68,7 +68,7 @@ func main() {
+ 	flag.BoolVar(&config.Verbose, "verbose", config.Verbose, "verbose output")
+ 	flag.StringVar(&config.Receiver.TmpDir, "tmpdir", config.Receiver.TmpDir, "tmp dir to use (receiver only)")
+ 	flag.IntVar(&config.ResendCount, "resendcount", config.ResendCount, "how many times to re-transmit from the sender")
+-	flag.BoolVar(&config.ResendManifest, "resendmanifest", config.ResendManifest, "resend the manifest between every (large) file")
++	flag.BoolVar(&config.ResendManifest, "resendmanifest", config.ResendManifest, "resend the manifest once between every 10MB of files")
+ 	flag.IntVar(&config.PacketLossPercent, "fakepacketlosspercent", config.PacketLossPercent, "randomly drop packages")
+ 	flag.BoolVar(&config.KeepBrokenFiles, "keepbrokenfiles", config.KeepBrokenFiles, "rename broken temp Files instead of deleting them")
+ 	flag.StringVar(&config.SaveManifestPath, "savemanifestpath", config.NIC, "save the transfer manifest to disk, works both both ends")
+diff --git a/src/receiver.go b/src/receiver.go
+index ff1f093..e360b3f 100644
+--- a/src/receiver.go
++++ b/src/receiver.go
+@@ -196,7 +196,7 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
+ 
+ 	destHash, _ := getFileHash(pft.filename)
+ 	if destHash != nil {
+-		if hex.EncodeToString(destHash) == hashFromManifest {
++		if hex.EncodeToString(destHash) == hashFromManifest && pft.size > 0 {
+ 			_ = os.Remove(tmpFile)
+ 			if r.conf.Verbose {
+ 				fmt.Println("Received sha matching file. Skip move. " + pft.filename)
+@@ -436,7 +436,7 @@ func (r *Receiver) handleManifestReceived() error {
+  * | type | id | part | [Size] | payload
+  * type - uint8 - 0x01
+  * id - uint32 - manifest session id
+- * part - uint16 - manifest session part index
++ * part - uint32 - manifest session part index
+  * Size - uint32 - total manifest Size, only sent in part 0
+  * payload | manifest chunk
+  *
+@@ -451,7 +451,7 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
+ 		//We've already got this manifest.
+ 		return nil
+ 	}
+-	part := int(binary.BigEndian.Uint16(buff[5:]))
++	part := int(binary.BigEndian.Uint32(buff[5:]))
+ 	pmt := r.pendingManifestTransfer
+ 	if pmt != nil {
+ 		if manifestId != r.manifestId {
+@@ -459,11 +459,11 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
+ 			r.pendingManifestTransfer = nil
+ 			pmt = nil
+ 		} else {
+-			if part != pmt.index {
++			if part > pmt.index {
+ 				r.pendingManifestTransfer = nil
+ 				return errors.New("received out of order manifest packet")
+ 			}
+-			read = copy(pmt.buff[pmt.offset:], buff[7:read])
++			read = copy(pmt.buff[pmt.offset:], buff[9:read])
+ 			pmt.offset += read
+ 			if pmt.offset == len(pmt.buff) {
+ 				manifest, err := deserializeManifest(pmt.buff, r.conf.HMACSecret)
+@@ -488,13 +488,16 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
+ 		if part != 0 {
+ 			return errors.New("unexpected manifest part received")
+ 		}
+-		size := int(binary.BigEndian.Uint32(buff[7:]))
+-		if size > 5*1024*1024 || size < 1 {
+-			return errors.New("too large manifest")
++		size := int(binary.BigEndian.Uint32(buff[9:]))
++		if r.conf.Verbose {
++			fmt.Println("received manifest size " + strconv.Itoa(size))
+ 		}
++		//if size > 5*1024*1024 || size < 1 {
++		//	return errors.New("too large manifest")
++		//}
+ 		r.manifestId = manifestId
+ 		manifestData := make([]byte, size)
+-		read = copy(manifestData, buff[11:])
++		read = copy(manifestData, buff[13:])
+ 		if read == size {
+ 			manifest, err := deserializeManifest(manifestData, r.conf.HMACSecret)
+ 			if err != nil {
+@@ -606,7 +609,7 @@ func receive(conf *Config, dir string) error {
+ 			err = receiver.onManifestPacket(buff, read)
+ 		}
+ 		if err != nil {
+-			fmt.Fprintf(os.Stderr, err.Error()+"\n")
++			//fmt.Fprintf(os.Stderr, err.Error()+"\n")
+ 			if conf.Verbose {
+ 				_, _ = fmt.Fprintf(os.Stderr, err.Error()+"\n")
+ 			}
+diff --git a/src/sender.go b/src/sender.go
+index 2efceb8..e910b4d 100644
+--- a/src/sender.go
++++ b/src/sender.go
+@@ -47,10 +47,7 @@ var THROTTLE = struct {
+  *
+  */
+ 
+-func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId uint32) error {
+-	if conf.Verbose {
+-		fmt.Println("Sending manifest")
+-	}
++func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId uint32, resendCount int) error {
+ 
+ 	if conf.MaxPacketSize < 14 {
+ 		return errors.New("Too small packet max Size for sending manifest")
+@@ -59,30 +56,42 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
+ 	if err != nil {
+ 		return err
+ 	}
+-	buff := make([]byte, conf.MaxPacketSize)
+-	buff[0] = 0x01
+-	binary.BigEndian.PutUint32(buff[1:], manifestId)
+ 
+-	offset := 0
+-	for i := 0; offset < len(manifestData); i++ {
+-		binary.BigEndian.PutUint16(buff[5:], uint16(i))
+-		l := 7
+-		copied := 0
+-		if i == 0 {
+-			binary.BigEndian.PutUint32(buff[l:], uint32(len(manifestData)))
+-			l += 4
+-			copied = copy(buff[l:], manifestData[offset:])
+-			l += copied
+-			offset += copied
+-		} else {
+-			copied = copy(buff[l:], manifestData[offset:])
+-			l += copied
+-			offset += copied
++	sentCount := 0
++	for rs := 0; rs < resendCount; rs++ {
++		sentCount++
++		if conf.Verbose {
++			fmt.Printf("Sending manifest %d of %d \n", sentCount, resendCount)
+ 		}
++		buff := make([]byte, conf.MaxPacketSize)
++		buff[0] = 0x01
++		binary.BigEndian.PutUint32(buff[1:], manifestId)
+ 
+-		c.Write(buff[:l])
++		offset := 0
++		var i uint32
++
++		for i = 0; offset < len(manifestData); i++ {
++			binary.BigEndian.PutUint32(buff[5:], i)
++			l := 9
++			copied := 0
++			if i == 0 {
++				binary.BigEndian.PutUint32(buff[l:], uint32(len(manifestData)))
++				l += 4
++				copied = copy(buff[l:], manifestData[offset:])
++				l += copied
++				offset += copied
++			} else {
++				copied = copy(buff[l:], manifestData[offset:])
++				l += copied
++				offset += copied
++			}
++
++			_, _ = c.Write(buff[:l])
+ 
+-		throttle(copied)
++			throttle(copied)
++		}
++		// wait some to let the receiver create Dirs etc
++		time.Sleep(2000 * time.Millisecond)
+ 	}
+ 	return nil
+ }
+@@ -261,7 +270,7 @@ func send(conf *Config, dir string) error {
+ 	}
+ 
+ 	manifestId := rand.Uint32()
+-	err = sendManifest(conf, c, manifest, manifestId)
++	err = sendManifest(conf, c, manifest, manifestId, conf.ResendCount)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -278,8 +287,6 @@ func send(conf *Config, dir string) error {
+ 	//	log.Println(THROTTLE.nsPerToken, THROTTLE.capacity, THROTTLE.tokens, THROTTLE.last)
+ 
+ 	for rs := 0; rs < conf.ResendCount; rs++ {
+-		// wait some to let the receiver create Dirs etc
+-		time.Sleep(2000 * time.Millisecond)
+ 
+ 		finfo, err := os.Stat(dir)
+ 		if err != nil {
+@@ -305,7 +312,7 @@ func send(conf *Config, dir string) error {
+ 				sentSize += manifest.Files[i].Size
+ 				if conf.ResendManifest && sentSize > (10*1028*1028) { //We do not want to saturate the channel with manifest data when there are lots of small Files to send.
+ 					sentSize = 0
+-					err = sendManifest(conf, c, manifest, manifestId)
++					err = sendManifest(conf, c, manifest, manifestId, 1)
+ 					if err != nil {
+ 						fmt.Fprintf(os.Stderr, "Error sending manifest: "+err.Error()+"\n")
+ 						return err

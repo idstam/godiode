@@ -47,42 +47,53 @@ var THROTTLE = struct {
  *
  */
 
-func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId uint32) error {
-	if conf.Verbose {
-		fmt.Println("Sending manifest")
-	}
+func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId uint32, resendCount int) error {
 
 	if conf.MaxPacketSize < 14 {
-		return errors.New("Too small packet max Size for sending manifest")
+		return errors.New("too small packet max Size for sending manifest")
 	}
 	manifestData, err := manifest.serializeManifest(conf.HMACSecret)
 	if err != nil {
 		return err
 	}
-	buff := make([]byte, conf.MaxPacketSize)
-	buff[0] = 0x01
-	binary.BigEndian.PutUint32(buff[1:], manifestId)
 
-	offset := 0
-	for i := 0; offset < len(manifestData); i++ {
-		binary.BigEndian.PutUint16(buff[5:], uint16(i))
-		l := 7
-		copied := 0
-		if i == 0 {
-			binary.BigEndian.PutUint32(buff[l:], uint32(len(manifestData)))
-			l += 4
-			copied = copy(buff[l:], manifestData[offset:])
-			l += copied
-			offset += copied
-		} else {
-			copied = copy(buff[l:], manifestData[offset:])
-			l += copied
-			offset += copied
+	sentCount := 0
+	for rs := 0; rs < resendCount; rs++ {
+		sentCount++
+		if conf.Verbose {
+			fmt.Printf("sending manifest part %d of %d \n", sentCount, resendCount)
 		}
+		buff := make([]byte, conf.MaxPacketSize)
+		buff[0] = 0x01
+		binary.BigEndian.PutUint32(buff[1:], manifestId)
 
-		c.Write(buff[:l])
+		offset := 0
+		var i uint32
 
-		throttle(copied)
+		for i = 0; offset < len(manifestData); i++ {
+			binary.BigEndian.PutUint32(buff[5:], i)
+			l := 9
+			copied := 0
+			if i == 0 {
+				binary.BigEndian.PutUint32(buff[l:], uint32(len(manifestData)))
+				l += 4
+				copied = copy(buff[l:], manifestData[offset:])
+				l += copied
+				offset += copied
+			} else {
+				copied = copy(buff[l:], manifestData[offset:])
+				l += copied
+				offset += copied
+			}
+
+			if conf.PacketLossPercent == 0 || rand.Intn(100) > conf.PacketLossPercent {
+				_, _ = c.Write(buff[:l])
+			}
+
+			throttle(copied)
+		}
+		// wait some to let the receiver create Dirs etc
+		time.Sleep(2000 * time.Millisecond)
 	}
 	return nil
 }
@@ -261,7 +272,7 @@ func send(conf *Config, dir string) error {
 	}
 
 	manifestId := rand.Uint32()
-	err = sendManifest(conf, c, manifest, manifestId)
+	err = sendManifest(conf, c, manifest, manifestId, conf.ResendCount)
 	if err != nil {
 		return err
 	}
@@ -278,8 +289,6 @@ func send(conf *Config, dir string) error {
 	//	log.Println(THROTTLE.nsPerToken, THROTTLE.capacity, THROTTLE.tokens, THROTTLE.last)
 
 	for rs := 0; rs < conf.ResendCount; rs++ {
-		// wait some to let the receiver create Dirs etc
-		time.Sleep(2000 * time.Millisecond)
 
 		finfo, err := os.Stat(dir)
 		if err != nil {
@@ -305,7 +314,7 @@ func send(conf *Config, dir string) error {
 				sentSize += manifest.Files[i].Size
 				if conf.ResendManifest && sentSize > (10*1028*1028) { //We do not want to saturate the channel with manifest data when there are lots of small Files to send.
 					sentSize = 0
-					err = sendManifest(conf, c, manifest, manifestId)
+					err = sendManifest(conf, c, manifest, manifestId, 1)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Error sending manifest: "+err.Error()+"\n")
 						return err

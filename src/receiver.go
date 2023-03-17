@@ -436,7 +436,7 @@ func (r *Receiver) handleManifestReceived() error {
  * | type | id | part | [Size] | payload
  * type - uint8 - 0x01
  * id - uint32 - manifest session id
- * part - uint16 - manifest session part index
+ * part - uint32 - manifest session part index
  * Size - uint32 - total manifest Size, only sent in part 0
  * payload | manifest chunk
  *
@@ -451,19 +451,19 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 		//We've already got this manifest.
 		return nil
 	}
-	part := int(binary.BigEndian.Uint16(buff[5:]))
+	part := int(binary.BigEndian.Uint32(buff[5:]))
 	pmt := r.pendingManifestTransfer
 	if pmt != nil {
 		if manifestId != r.manifestId {
-			fmt.Fprintf(os.Stderr, "Replacing pending manifest before completed\n")
+			fmt.Fprintf(os.Stderr, "replacing pending manifest before completed\n")
 			r.pendingManifestTransfer = nil
 			pmt = nil
 		} else {
 			if part != pmt.index {
-				r.pendingManifestTransfer = nil
-				return errors.New("received out of order manifest packet")
+				//r.pendingManifestTransfer = nil
+				return errors.New(fmt.Sprintf("received out of order manifest packet got %d wanted %d", part, pmt.index))
 			}
-			read = copy(pmt.buff[pmt.offset:], buff[7:read])
+			read = copy(pmt.buff[pmt.offset:], buff[9:read])
 			pmt.offset += read
 			if pmt.offset == len(pmt.buff) {
 				manifest, err := deserializeManifest(pmt.buff, r.conf.HMACSecret)
@@ -486,15 +486,18 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 	}
 	if pmt == nil {
 		if part != 0 {
-			return errors.New("unexpected manifest part received")
+			return errors.New(fmt.Sprintf("waiting for first manifest part, received %d", part))
 		}
-		size := int(binary.BigEndian.Uint32(buff[7:]))
-		if size > 5*1024*1024 || size < 1 {
-			return errors.New("too large manifest")
+		size := int(binary.BigEndian.Uint32(buff[9:]))
+		if r.conf.Verbose {
+			fmt.Println("received manifest size " + strconv.Itoa(size))
 		}
+		//if size > 5*1024*1024 || size < 1 {
+		//	return errors.New("too large manifest")
+		//}
 		r.manifestId = manifestId
 		manifestData := make([]byte, size)
-		read = copy(manifestData, buff[11:])
+		read = copy(manifestData, buff[13:])
 		if read == size {
 			manifest, err := deserializeManifest(manifestData, r.conf.HMACSecret)
 			if err != nil {
@@ -606,7 +609,6 @@ func receive(conf *Config, dir string) error {
 			err = receiver.onManifestPacket(buff, read)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, err.Error()+"\n")
 			if conf.Verbose {
 				_, _ = fmt.Fprintf(os.Stderr, err.Error()+"\n")
 			}
