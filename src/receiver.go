@@ -85,13 +85,13 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 
 			err := errors.New("received too much data on file")
 			pt.err = &err
-			pt.file.Close()
-			os.Remove(pt.filename)
+			_ = pt.file.Close()
+			_ = os.Remove(pt.filename)
 			return err
 		}
 		pt.incomplete = false
-		pt.hash.Write(buff[13:read])
-		pt.file.Write(buff[13:read])
+		_, _ = pt.hash.Write(buff[13:read])
+		_, _ = pt.file.Write(buff[13:read])
 
 		pt.index++
 		r.manifest.Files[fileIndex].NextPackageId = pt.index
@@ -108,7 +108,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		err := errors.New(fmt.Sprintf("Received out of order packet for file transfer want %d got %d \n %s \n", pt.index, packageIndex, pt.filename))
 		pt.incomplete = true
 		pt.err = &err
-		pt.file.Close()
+		_ = pt.file.Close()
 		return err
 	}
 	return nil
@@ -131,8 +131,8 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	}
 	if r.pendingFileTransfer != nil {
 		//TODO: check if same file
-		fmt.Fprintf(os.Stderr, "Received new file transfer with previous still pending\n")
-		r.pendingFileTransfer.file.Close()
+		_, _ = fmt.Fprintf(os.Stderr, "Received new file transfer with previous still pending\n")
+		_ = r.pendingFileTransfer.file.Close()
 		r.pendingFileTransfer = nil
 	}
 
@@ -165,7 +165,7 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	size := binary.BigEndian.Uint64(buff[10:])
 
 	h512 := sha512.New()
-	io.WriteString(h512, r.conf.HMACSecret)
+	_, _ = io.WriteString(h512, r.conf.HMACSecret)
 	mac := hmac.New(sha512.New, h512.Sum(nil))
 	mac.Write(buff[:26])
 	if !bytes.Equal(mac.Sum(nil), buff[26:26+64]) {
@@ -205,6 +205,11 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 		} else {
 			_ = os.Remove(pft.filename)
 		}
+	}
+
+	destDir := filepath.Dir(pft.filename)
+	if _, err := os.Stat(destDir); os.IsNotExist(err) {
+		_ = os.MkdirAll(destDir, r.conf.Receiver.FolderPermission)
 	}
 
 	err := os.Rename(tmpFile, pft.filename)
@@ -274,15 +279,15 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 	offset += 32
 
 	h512 := sha512.New()
-	io.WriteString(h512, r.conf.HMACSecret)
+	_, _ = io.WriteString(h512, r.conf.HMACSecret)
 	mac := hmac.New(sha512.New, h512.Sum(nil))
 	mac.Write(buff[:offset])
 	if !bytes.Equal(mac.Sum(nil), buff[offset:offset+64]) {
 		return errors.New("Invalid signature in file Complete packet for file " + pft.filename)
 	}
 
-	pft.file.Sync()
-	pft.file.Close()
+	_ = pft.file.Sync()
+	_ = pft.file.Close()
 
 	wg.Add(1)
 	go r.finalizeFileTransfer(*pft, manifestId, hashFromManifest)
@@ -315,9 +320,9 @@ func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int,
 		r.manifest.Files[pft.fileIndex].Complete = false
 		r.manifest.Files[pft.fileIndex].NextPackageId = 0
 		if r.conf.KeepBrokenFiles {
-			os.Rename(tmpFile, tmpFile+".broken")
+			_ = os.Rename(tmpFile, tmpFile+".broken")
 		} else {
-			os.Remove(tmpFile)
+			_ = os.Remove(tmpFile)
 		}
 		fmt.Printf("data checksum error for received file %s \n", pft.filename)
 
@@ -345,18 +350,18 @@ func getFileHash(tmpFile string) ([]byte, error) {
 }
 func (r *Receiver) createFolders() {
 	if r.manifest == nil {
-		fmt.Fprintf(os.Stderr, "no manifest \n")
+		_, _ = fmt.Fprintf(os.Stderr, "no manifest \n")
 		return
 	}
 	for d := range r.manifest.Dirs {
 		p := r.dir + path.Clean(r.manifest.Dirs[d].Path)
 		err := os.MkdirAll(p, r.conf.Receiver.FolderPermission)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating dir "+p+"\n")
+			_, _ = fmt.Fprintf(os.Stderr, "Error creating dir "+p+"\n")
 		} else {
 			err = os.Chtimes(p, time.Unix(int64(r.manifest.Dirs[d].Modts), 0), time.Unix(int64(r.manifest.Dirs[d].Modts), 0))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to set mtime on "+p+"\n")
+				_, _ = fmt.Fprintf(os.Stderr, "Failed to set mtime on "+p+"\n")
 			}
 		}
 	}
@@ -375,7 +380,7 @@ func (r *Receiver) handleManifestReceived() error {
 	if r.conf.Receiver.Delete {
 		dm := map[string]bool{}
 		fm := map[string]FileRecord{}
-		filepath.WalkDir(r.dir, func(p string, d fs.DirEntry, err error) error {
+		_ = filepath.WalkDir(r.dir, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
@@ -400,10 +405,10 @@ func (r *Receiver) handleManifestReceived() error {
 				delete(fm, r.manifest.Files[i].Path)
 			}
 		}
-		for f, _ := range fm {
+		for f := range fm {
 			err := os.Remove(f)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to delete file "+f+"\n")
+				_, _ = fmt.Fprintf(os.Stderr, "Failed to delete file "+f+"\n")
 			} else if r.conf.Verbose {
 				fmt.Println("Removed file " + f)
 			}
@@ -416,11 +421,11 @@ func (r *Receiver) handleManifestReceived() error {
 				delete(dm, r.manifest.Dirs[i].Path)
 			}
 		}
-		for d, _ := range dm {
+		for d := range dm {
 			if d != r.tmpDir {
 				err := os.Remove(d)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to delete dir "+d+"\n")
+					_, _ = fmt.Fprintf(os.Stderr, "Failed to delete dir "+d+"\n")
 				} else if r.conf.Verbose {
 					fmt.Println("Removed dir " + d)
 				}
@@ -455,7 +460,7 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 	pmt := r.pendingManifestTransfer
 	if pmt != nil {
 		if manifestId != r.manifestId {
-			fmt.Fprintf(os.Stderr, "replacing pending manifest before completed\n")
+			_, _ = fmt.Fprintf(os.Stderr, "replacing pending manifest before completed\n")
 			r.pendingManifestTransfer = nil
 			pmt = nil
 		} else {

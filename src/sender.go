@@ -92,8 +92,7 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
 
 			throttle(copied)
 		}
-		// wait some to let the receiver create Dirs etc
-		time.Sleep(2000 * time.Millisecond)
+
 	}
 	return nil
 }
@@ -152,11 +151,11 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	binary.BigEndian.PutUint64(buff[10:], uint64(finfo.Size()))
 	binary.BigEndian.PutUint64(buff[18:], uint64(finfo.ModTime().Unix()))
 	h512 := sha512.New()
-	io.WriteString(h512, conf.HMACSecret)
+	_, _ = io.WriteString(h512, conf.HMACSecret)
 	mac := hmac.New(sha512.New, h512.Sum(nil))
 	mac.Write(buff[:26])
 	copy(buff[26:], mac.Sum(nil))
-	c.Write(buff[:26+64])
+	_, _ = c.Write(buff[:26+64])
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -179,12 +178,12 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 
 		throttle(read)
 		if conf.PacketLossPercent == 0 || rand.Intn(100) > conf.PacketLossPercent {
-			c.Write(buff[:(read + 13)])
+			_, _ = c.Write(buff[:(read + 13)])
 		}
 		packetIndex++
 	}
 
-	file.Close()
+	_ = file.Close()
 	hs, err := getSendFileHash(f)
 	if err != nil {
 		return err
@@ -195,11 +194,11 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	binary.BigEndian.PutUint32(buff[5:], fIndex)
 	copy(buff[9:], hs)
 	h512 = sha512.New()
-	io.WriteString(h512, conf.HMACSecret)
+	_, _ = io.WriteString(h512, conf.HMACSecret)
 	mac = hmac.New(sha512.New, h512.Sum(nil))
 	mac.Write(buff[:9+32])
 	copy(buff[9+32:], mac.Sum(nil))
-	c.Write(buff[:9+32+64])
+	_, _ = c.Write(buff[:9+32+64])
 
 	if conf.Verbose {
 		fmt.Println("Sent file " + f + ", checksum=" + hex.EncodeToString(hs))
@@ -286,13 +285,16 @@ func send(conf *Config, dir string) error {
 		THROTTLE.last = time.Now()
 	}
 
+	// wait some to let the receiver create Dirs etc
+	time.Sleep(2000 * time.Millisecond)
+
 	//	log.Println(THROTTLE.nsPerToken, THROTTLE.capacity, THROTTLE.tokens, THROTTLE.last)
 
 	for rs := 0; rs < conf.ResendCount; rs++ {
 
 		finfo, err := os.Stat(dir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error sending : "+err.Error()+"\n")
+			_, _ = fmt.Fprintf(os.Stderr, "Error sending : "+err.Error()+"\n")
 			return err
 		}
 
@@ -308,7 +310,7 @@ func send(conf *Config, dir string) error {
 
 				err = sendFile(conf, c, manifestId, uint32(i), dir+manifest.Files[i].Path)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error sending file: "+manifest.Files[i].Path+" "+err.Error()+"\n")
+					_, _ = fmt.Fprintf(os.Stderr, "Error sending file: "+manifest.Files[i].Path+" "+err.Error()+"\n")
 					continue
 				}
 				sentSize += manifest.Files[i].Size
@@ -316,7 +318,7 @@ func send(conf *Config, dir string) error {
 					sentSize = 0
 					err = sendManifest(conf, c, manifest, manifestId, 1)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "Error sending manifest: "+err.Error()+"\n")
+						_, _ = fmt.Fprintf(os.Stderr, "Error sending manifest: "+err.Error()+"\n")
 						return err
 					}
 
