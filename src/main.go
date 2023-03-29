@@ -33,6 +33,9 @@ func checkCommonArgs() {
 	if config.HMACSecret == "" {
 		fmt.Fprintf(os.Stderr, "Warning: HMAC secret not set\n")
 	}
+	if config.HashAlgo == "" {
+		config.HashAlgo = "SHA256"
+	}
 	//TODO: check more args...
 }
 
@@ -71,13 +74,14 @@ func main() {
 	flag.BoolVar(&config.ResendManifest, "resendmanifest", config.ResendManifest, "resend the manifest once between every 10MB of file data")
 	flag.IntVar(&config.PacketLossPercent, "fakepacketlosspercent", config.PacketLossPercent, "randomly drop packages")
 	flag.BoolVar(&config.KeepBrokenFiles, "keepbrokenfiles", config.KeepBrokenFiles, "rename broken temp Files instead of deleting them")
-	flag.StringVar(&config.SaveManifestPath, "savemanifestpath", config.NIC, "save the transfer manifest to disk, works both both ends")
+	flag.StringVar(&config.SaveManifestPath, "savemanifestpath", config.SaveManifestPath, "save the transfer manifest to disk, works both both ends")
+	flag.StringVar(&config.HashAlgo, "hashalgo", config.HashAlgo, "Hashing algorithm for validating files. [sha256, md5, none] default is sha256")
 	flag.Parse()
 
 	// load defaults from file
 	fileConfig, err := loadConfigFile(confFile)
 	if err != nil && confFile != DEFAULT_CONF_PATH {
-		fmt.Fprintf(os.Stderr, "Error reading config: "+err.Error()+"\n")
+		_, _ = fmt.Fprintf(os.Stderr, "Error reading config: "+err.Error()+"\n")
 		os.Exit(1)
 	}
 

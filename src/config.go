@@ -27,6 +27,7 @@ type Config struct {
 	PacketLossPercent int            `json:"packetlosspercent"`
 	KeepBrokenFiles   bool           `json:"keepbrokenfiles"`
 	SaveManifestPath  string         `json:"savemanifestpath"`
+	HashAlgo          string         `json:"hashAlgo"`
 }
 
 var config = Config{

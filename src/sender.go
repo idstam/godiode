@@ -2,18 +2,21 @@ package main
 
 import (
 	"crypto/hmac"
+	"crypto/md5"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"math"
 	"math/rand"
 	"net"
 	"os"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -150,13 +153,17 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	binary.BigEndian.PutUint32(buff[6:], fIndex)
 	binary.BigEndian.PutUint64(buff[10:], uint64(finfo.Size()))
 	binary.BigEndian.PutUint64(buff[18:], uint64(finfo.ModTime().Unix()))
-	h512 := sha512.New()
-	_, _ = io.WriteString(h512, conf.HMACSecret)
-	mac := hmac.New(sha512.New, h512.Sum(nil))
-	mac.Write(buff[:26])
-	copy(buff[26:], mac.Sum(nil))
-	_, _ = c.Write(buff[:26+64])
-
+	if conf.HMACSecret != "" {
+		h512 := sha512.New()
+		_, _ = io.WriteString(h512, conf.HMACSecret)
+		mac := hmac.New(sha512.New, h512.Sum(nil))
+		mac.Write(buff[:26])
+		copy(buff[26:], mac.Sum(nil))
+		_, _ = c.Write(buff[:26+64])
+	} else {
+		copy(buff[26:], make([]byte, 64))
+		_, _ = c.Write(buff[:26+64])
+	}
 	time.Sleep(50 * time.Millisecond)
 
 	buff[0] = 0x80
@@ -184,7 +191,7 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	}
 
 	_ = file.Close()
-	hs, err := getSendFileHash(f)
+	hs, err := getSendFileHash(f, conf.HashAlgo)
 	if err != nil {
 		return err
 	}
@@ -193,13 +200,18 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	binary.BigEndian.PutUint32(buff[1:], manifestId)
 	binary.BigEndian.PutUint32(buff[5:], fIndex)
 	copy(buff[9:], hs)
-	h512 = sha512.New()
-	_, _ = io.WriteString(h512, conf.HMACSecret)
-	mac = hmac.New(sha512.New, h512.Sum(nil))
-	mac.Write(buff[:9+32])
-	copy(buff[9+32:], mac.Sum(nil))
-	_, _ = c.Write(buff[:9+32+64])
+	if conf.HMACSecret != "" {
+		h512 := sha512.New()
+		_, _ = io.WriteString(h512, conf.HMACSecret)
+		mac := hmac.New(sha512.New, h512.Sum(nil))
+		mac.Write(buff[:9+32])
+		copy(buff[9+32:], mac.Sum(nil))
+		_, _ = c.Write(buff[:9+32+64])
+	} else {
+		copy(buff[9+32:], make([]byte, 64))
+		_, _ = c.Write(buff[:9+32+64])
 
+	}
 	if conf.Verbose {
 		fmt.Println("Sent file " + f + ", checksum=" + hex.EncodeToString(hs))
 	}
@@ -332,16 +344,27 @@ func send(conf *Config, dir string) error {
 	}
 	return nil
 }
-func getSendFileHash(tmpFile string) ([]byte, error) {
+func getSendFileHash(tmpFile string, hashAlgo string) ([]byte, error) {
+	var h hash.Hash
+	switch strings.ToLower(hashAlgo) {
+	case "none":
+		return []byte{0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7}, nil
+	case "md5":
+		h = md5.New()
+		break
+	default:
+		h = sha256.New()
+	}
+
 	f, err := os.Open(tmpFile)
 	if err != nil {
 		return nil, fmt.Errorf("getSendFileHash %s", err.Error())
 	}
 	defer f.Close()
 
-	h := sha256.New()
 	if _, err = io.Copy(h, f); err != nil {
 		return nil, fmt.Errorf("getSendFileHash %s", err.Error())
 	}
-	return h.Sum(nil), nil
+
+	return padBytes(h.Sum(nil), 32), nil
 }
