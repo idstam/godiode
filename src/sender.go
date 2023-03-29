@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
@@ -146,7 +147,8 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		fmt.Println("Sending file " + f)
 	}
 
-	buff := make([]byte, conf.MaxPacketSize)
+	buff := make([]byte, conf.MaxPacketSize, conf.MaxPacketSize)
+
 	buff[0] = 0x02
 	buff[1] = 0x00
 	binary.BigEndian.PutUint32(buff[2:], manifestId)
@@ -161,8 +163,7 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		copy(buff[26:], mac.Sum(nil))
 		_, _ = c.Write(buff[:26+64])
 	} else {
-		copy(buff[26:], make([]byte, 64))
-		_, _ = c.Write(buff[:26+64])
+		_, _ = c.Write(buff[:26])
 	}
 	time.Sleep(50 * time.Millisecond)
 
@@ -170,9 +171,9 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	var packetIndex uint32
 
 	//	pos := 0
+	binary.BigEndian.PutUint32(buff[1:], manifestId)
+	binary.BigEndian.PutUint32(buff[5:], fIndex)
 	for {
-		binary.BigEndian.PutUint32(buff[1:], manifestId)
-		binary.BigEndian.PutUint32(buff[5:], fIndex)
 		binary.BigEndian.PutUint32(buff[9:], packetIndex)
 		read, err := file.Read(buff[13:])
 		//		fmt.Println("read=%d", read, err)
@@ -208,8 +209,7 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		copy(buff[9+32:], mac.Sum(nil))
 		_, _ = c.Write(buff[:9+32+64])
 	} else {
-		copy(buff[9+32:], make([]byte, 64))
-		_, _ = c.Write(buff[:9+32+64])
+		_, _ = c.Write(buff[:9+32])
 
 	}
 	if conf.Verbose {
@@ -290,8 +290,8 @@ func send(conf *Config, dir string) error {
 
 	if conf.Sender.Bw > 0 {
 		THROTTLE.enabled = true
-		bytesPerSecond := int64(1000000 * conf.Sender.Bw / 8)
-		THROTTLE.nsPerToken = float64(1000000000) / float64(bytesPerSecond)
+		bytesPerSecond := int64(1024 * 1024 * conf.Sender.Bw / 8)
+		THROTTLE.nsPerToken = float64(1024*1024*1024) / float64(bytesPerSecond)
 		THROTTLE.capacity = 13 * int64(conf.MaxPacketSize+HEADER_OVERHEAD)
 		THROTTLE.tokens = THROTTLE.capacity
 		THROTTLE.last = time.Now()
@@ -351,6 +351,9 @@ func getSendFileHash(tmpFile string, hashAlgo string) ([]byte, error) {
 		return []byte{0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7}, nil
 	case "md5":
 		h = md5.New()
+		break
+	case "sha1":
+		h = sha1.New()
 		break
 	default:
 		h = sha256.New()

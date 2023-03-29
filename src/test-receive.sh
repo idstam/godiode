@@ -2,4 +2,5 @@
 
 go build
 
-./godiode --interface lo --verbose --tmpdir /home/johan/temp/godiode_temp/ -savemanifestpath /home/johan/temp/receiver.manifest.json -hashalgo none receive /home/johan/temp/godiode_destination/
+rm -rf /home/johan/temp/godiode_destination/*
+./godiode -hashalgo none  --interface lo --verbose --tmpdir /home/johan/temp/godiode_temp/ -savemanifestpath /home/johan/temp/receiver.manifest.json receive /home/johan/temp/godiode_destination/

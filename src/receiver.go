@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/sha1"
 	"io"
 	"io/fs"
 	"path/filepath"
@@ -127,7 +128,11 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
  * sign - byte[64] - hmac512 of this header
  */
 func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
-	if read < 1+1+4+4+8+8+64 {
+	hmacLen := 64
+	if r.conf.HMACSecret == "" {
+		hmacLen = 0
+	}
+	if read < 1+1+4+4+8+8+hmacLen {
 		return errors.New("received truncated file transfer start packet")
 	}
 	if r.pendingFileTransfer != nil {
@@ -170,7 +175,7 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 		_, _ = io.WriteString(h512, r.conf.HMACSecret)
 		mac := hmac.New(sha512.New, h512.Sum(nil))
 		mac.Write(buff[:26])
-		if !bytes.Equal(mac.Sum(nil), buff[26:26+64]) {
+		if !bytes.Equal(mac.Sum(nil), buff[26:26+hmacLen]) {
 			return errors.New("Invalid signature in file start packet for " + fp)
 		}
 	}
@@ -238,11 +243,9 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 	if r.conf.Verbose {
 		var speed = 0
 		if timeTaken > 0 {
-			speed = int(math.Round(float64((8*pft.size)/1000) / timeTaken))
+			speed = int(math.Round(float64((8*pft.size)/1024/1024) / timeTaken))
 		}
-		//h := pft.hash.Sum(nil)
-		//fmt.Println("Successfully received " + pft.filename + ", checksum=" + hex.EncodeToString(h) + " Size=" + strconv.FormatInt(int64(pft.size), 10) + " " + strconv.Itoa(speed) + "kbit/s")
-		fmt.Println("Successfully received " + pft.filename + ", Size=" + strconv.FormatInt(int64(pft.size), 10) + " " + strconv.Itoa(speed) + "kbit/s")
+		fmt.Println("Successfully received " + pft.filename + ", Size=" + strconv.FormatInt(int64(pft.size), 10) + " " + strconv.Itoa(speed) + " Mbit/s")
 	}
 	return
 }
@@ -257,7 +260,11 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
  * sign - byte[64] - hmac512 of this packet
  */
 func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
-	if read < 1+4+4+32+64 {
+	hmacLen := 64
+	if r.conf.HMACSecret == "" {
+		hmacLen = 0
+	}
+	if read < 1+4+4+32+hmacLen {
 		return errors.New("received truncated file transfer Complete packet")
 	}
 
@@ -346,6 +353,9 @@ func getFileHash(tmpFile string, hashAlgo string) ([]byte, error) {
 		return []byte{0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7}, nil
 	case "md5":
 		h = md5.New()
+		break
+	case "sha1":
+		h = sha1.New()
 		break
 	default:
 		h = sha256.New()
