@@ -1,14 +1,13 @@
 
-# DIY Data Diode
-Simple DIY gigabit data diode (hardware and software). Presented at SEC-T 2021.
+# File transfer over UDP
+This project is a fork from https://github.com/klockcykel/godiode
 
-## Hardware
-By doing a simple hardware mod to a fiber converter you can build your own data diode for around €60. See the /hardware folder for [modding instructions](https://github.com/klockcykel/godiode/blob/main/hardware/README.md#diy-optical-gigabit-data-diode)
+I have made a lot of changes to make it work for large data sets in a production environment.
 
 ## Software
-PoC golang code for reliable file transfers over a data diode. With recommended OS optimizations it should reach 750+ Mbit/s file transfers.
+With recommended OS optimizations it should reach 750+ Mbit/s file transfers.
 
-My (@idstam) changes makes this a little less PoC and more robust for production use. 
+These changes make this a little less PoC and more robust for production use. 
 
  -  added resending of the manifest to enable starting a listener in the middle of a sending session.
  -  keep received data and continue appending on resend to handle package loss within a file
@@ -16,6 +15,8 @@ My (@idstam) changes makes this a little less PoC and more robust for production
  -  randomly drop packages for testing purposes
  -  don't overwrite already received files if they are the same
  -  keep running the receiver until all files are received
+ -  optional hash algorithms
+ 
 
 ### Build instructions
 With local golang available
@@ -51,7 +52,7 @@ Usage: godiode <options> send|receive <dir>
   -packetsize int
     	maximum UDP payload size (default 1472)
   -secret string
-    	HMAC secret
+    	HMAC secret to protect file headers and footers
   -tmpdir string
     	tmp dir to use (receiver only)
   -verbose
@@ -66,6 +67,8 @@ Usage: godiode <options> send|receive <dir>
         rename broken received temp files instead of deleting them
   -savemanifestpath string
         save the transfer manifest to disk, works both both ends
+  -hashalgo
+        hashing algorithm for validating files. [sha256, sha1, md5, none] default is sha256
 ```
 #### Receiver
 Replace eth0 with nic connected to diode, received data will end up in ./in
@@ -94,13 +97,13 @@ For optimal performance it's recommended to use jumbo frames. Enable on your int
 # replace eth0 with nic connected to diode
 sudo ip link set mtu 9000 eth0
 ```
-Instruct sender/receiver to use larger packets with _maxpacket_-flag to godiode
+Instruct sender/receiver to use larger packets with _packetsize_-flag to godiode
 ```
 godiode --packetsize 8972 send /out
 ```
 
 #### Increase send/receive buffers
-Receiver will try and allocate a receive buffer of 300xPacketsize, so with jumbo frames the net.core.rm_max should be set to at least 2700000 in either /etc/sysctl.conf or manually with
+Receiver will try and allocate a buffer of 300xPacketsize, so with jumbo frames the net.core.rm_max should be set to at least 2700000 in either /etc/sysctl.conf or manually with
 ```
 sudo sysctl net.core.rmem_max=2700000
 ```

@@ -75,7 +75,7 @@ func main() {
 	flag.IntVar(&config.PacketLossPercent, "fakepacketlosspercent", config.PacketLossPercent, "randomly drop packages")
 	flag.BoolVar(&config.KeepBrokenFiles, "keepbrokenfiles", config.KeepBrokenFiles, "rename broken temp Files instead of deleting them")
 	flag.StringVar(&config.SaveManifestPath, "savemanifestpath", config.SaveManifestPath, "save the transfer manifest to disk, works both both ends")
-	flag.StringVar(&config.HashAlgo, "hashalgo", config.HashAlgo, "Hashing algorithm for validating files. [sha256, sha1, md5, none] default is sha256")
+	flag.StringVar(&config.HashAlgo, "hashalgo", config.HashAlgo, "hashing algorithm for validating files. [sha256, sha1, md5, none] default is sha256")
 	flag.Parse()
 
 	// load defaults from file
