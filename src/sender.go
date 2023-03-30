@@ -2,18 +2,22 @@ package main
 
 import (
 	"crypto/hmac"
+	"crypto/md5"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"math"
 	"math/rand"
 	"net"
 	"os"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -143,29 +147,33 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		fmt.Println("Sending file " + f)
 	}
 
-	buff := make([]byte, conf.MaxPacketSize)
+	buff := make([]byte, conf.MaxPacketSize, conf.MaxPacketSize)
+
 	buff[0] = 0x02
 	buff[1] = 0x00
 	binary.BigEndian.PutUint32(buff[2:], manifestId)
 	binary.BigEndian.PutUint32(buff[6:], fIndex)
 	binary.BigEndian.PutUint64(buff[10:], uint64(finfo.Size()))
 	binary.BigEndian.PutUint64(buff[18:], uint64(finfo.ModTime().Unix()))
-	h512 := sha512.New()
-	_, _ = io.WriteString(h512, conf.HMACSecret)
-	mac := hmac.New(sha512.New, h512.Sum(nil))
-	mac.Write(buff[:26])
-	copy(buff[26:], mac.Sum(nil))
-	_, _ = c.Write(buff[:26+64])
-
+	if conf.HMACSecret != "" {
+		h512 := sha512.New()
+		_, _ = io.WriteString(h512, conf.HMACSecret)
+		mac := hmac.New(sha512.New, h512.Sum(nil))
+		mac.Write(buff[:26])
+		copy(buff[26:], mac.Sum(nil))
+		_, _ = c.Write(buff[:26+64])
+	} else {
+		_, _ = c.Write(buff[:26])
+	}
 	time.Sleep(50 * time.Millisecond)
 
 	buff[0] = 0x80
 	var packetIndex uint32
 
 	//	pos := 0
+	binary.BigEndian.PutUint32(buff[1:], manifestId)
+	binary.BigEndian.PutUint32(buff[5:], fIndex)
 	for {
-		binary.BigEndian.PutUint32(buff[1:], manifestId)
-		binary.BigEndian.PutUint32(buff[5:], fIndex)
 		binary.BigEndian.PutUint32(buff[9:], packetIndex)
 		read, err := file.Read(buff[13:])
 		//		fmt.Println("read=%d", read, err)
@@ -184,7 +192,7 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	}
 
 	_ = file.Close()
-	hs, err := getSendFileHash(f)
+	hs, err := getSendFileHash(f, conf.HashAlgo)
 	if err != nil {
 		return err
 	}
@@ -193,13 +201,17 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 	binary.BigEndian.PutUint32(buff[1:], manifestId)
 	binary.BigEndian.PutUint32(buff[5:], fIndex)
 	copy(buff[9:], hs)
-	h512 = sha512.New()
-	_, _ = io.WriteString(h512, conf.HMACSecret)
-	mac = hmac.New(sha512.New, h512.Sum(nil))
-	mac.Write(buff[:9+32])
-	copy(buff[9+32:], mac.Sum(nil))
-	_, _ = c.Write(buff[:9+32+64])
+	if conf.HMACSecret != "" {
+		h512 := sha512.New()
+		_, _ = io.WriteString(h512, conf.HMACSecret)
+		mac := hmac.New(sha512.New, h512.Sum(nil))
+		mac.Write(buff[:9+32])
+		copy(buff[9+32:], mac.Sum(nil))
+		_, _ = c.Write(buff[:9+32+64])
+	} else {
+		_, _ = c.Write(buff[:9+32])
 
+	}
 	if conf.Verbose {
 		fmt.Println("Sent file " + f + ", checksum=" + hex.EncodeToString(hs))
 	}
@@ -278,8 +290,8 @@ func send(conf *Config, dir string) error {
 
 	if conf.Sender.Bw > 0 {
 		THROTTLE.enabled = true
-		bytesPerSecond := int64(1000000 * conf.Sender.Bw / 8)
-		THROTTLE.nsPerToken = float64(1000000000) / float64(bytesPerSecond)
+		bytesPerSecond := int64(1024 * 1024 * conf.Sender.Bw / 8)
+		THROTTLE.nsPerToken = float64(1024*1024*1024) / float64(bytesPerSecond)
 		THROTTLE.capacity = 13 * int64(conf.MaxPacketSize+HEADER_OVERHEAD)
 		THROTTLE.tokens = THROTTLE.capacity
 		THROTTLE.last = time.Now()
@@ -332,16 +344,30 @@ func send(conf *Config, dir string) error {
 	}
 	return nil
 }
-func getSendFileHash(tmpFile string) ([]byte, error) {
+func getSendFileHash(tmpFile string, hashAlgo string) ([]byte, error) {
+	var h hash.Hash
+	switch strings.ToLower(hashAlgo) {
+	case "none":
+		return []byte{0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7}, nil
+	case "md5":
+		h = md5.New()
+		break
+	case "sha1":
+		h = sha1.New()
+		break
+	default:
+		h = sha256.New()
+	}
+
 	f, err := os.Open(tmpFile)
 	if err != nil {
 		return nil, fmt.Errorf("getSendFileHash %s", err.Error())
 	}
 	defer f.Close()
 
-	h := sha256.New()
 	if _, err = io.Copy(h, f); err != nil {
 		return nil, fmt.Errorf("getSendFileHash %s", err.Error())
 	}
-	return h.Sum(nil), nil
+
+	return padBytes(h.Sum(nil), 32), nil
 }

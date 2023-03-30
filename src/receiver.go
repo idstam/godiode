@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
+	"crypto/sha1"
 	"io"
 	"io/fs"
 	"path/filepath"
@@ -90,7 +92,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 			return err
 		}
 		pt.incomplete = false
-		_, _ = pt.hash.Write(buff[13:read])
+		//_, _ = pt.hash.Write(buff[13:read])
 		_, _ = pt.file.Write(buff[13:read])
 
 		pt.index++
@@ -126,7 +128,11 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
  * sign - byte[64] - hmac512 of this header
  */
 func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
-	if read < 1+1+4+4+8+8+64 {
+	hmacLen := 64
+	if r.conf.HMACSecret == "" {
+		hmacLen = 0
+	}
+	if read < 1+1+4+4+8+8+hmacLen {
 		return errors.New("received truncated file transfer start packet")
 	}
 	if r.pendingFileTransfer != nil {
@@ -164,14 +170,15 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 
 	size := binary.BigEndian.Uint64(buff[10:])
 
-	h512 := sha512.New()
-	_, _ = io.WriteString(h512, r.conf.HMACSecret)
-	mac := hmac.New(sha512.New, h512.Sum(nil))
-	mac.Write(buff[:26])
-	if !bytes.Equal(mac.Sum(nil), buff[26:26+64]) {
-		return errors.New("Invalid signature in file start packet for " + fp)
+	if r.conf.HMACSecret != "" {
+		h512 := sha512.New()
+		_, _ = io.WriteString(h512, r.conf.HMACSecret)
+		mac := hmac.New(sha512.New, h512.Sum(nil))
+		mac.Write(buff[:26])
+		if !bytes.Equal(mac.Sum(nil), buff[26:26+hmacLen]) {
+			return errors.New("Invalid signature in file start packet for " + fp)
+		}
 	}
-
 	tmpFile := path.Join(r.tmpDir, "godiodetmp."+strconv.FormatUint(uint64(manifestId), 16)+"."+strconv.Itoa(fileIndex))
 
 	file, err := os.OpenFile(tmpFile, os.O_RDWR|os.O_APPEND|os.O_CREATE, r.conf.Receiver.FilePermission)
@@ -194,19 +201,20 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFromManifest string) {
 	timeTaken := time.Duration.Seconds(time.Since(pft.transferStart))
 
-	destHash, _ := getFileHash(pft.filename)
-	if destHash != nil {
-		if hex.EncodeToString(destHash) == hashFromManifest {
-			_ = os.Remove(tmpFile)
-			if r.conf.Verbose {
-				fmt.Println("Received sha matching file. Skip move. " + pft.filename)
+	if strings.ToLower(r.conf.HashAlgo) != "none" {
+		destHash, _ := getFileHash(pft.filename, r.conf.HashAlgo)
+		if destHash != nil {
+			if hex.EncodeToString(destHash) == hashFromManifest {
+				_ = os.Remove(tmpFile)
+				if r.conf.Verbose {
+					fmt.Println("Received hash matching file. Skip move. " + pft.filename)
+				}
+				return
+			} else {
+				_ = os.Remove(pft.filename)
 			}
-			return
-		} else {
-			_ = os.Remove(pft.filename)
 		}
 	}
-
 	destDir := filepath.Dir(pft.filename)
 	if _, err := os.Stat(destDir); os.IsNotExist(err) {
 		_ = os.MkdirAll(destDir, r.conf.Receiver.FolderPermission)
@@ -235,10 +243,9 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 	if r.conf.Verbose {
 		var speed = 0
 		if timeTaken > 0 {
-			speed = int(math.Round(float64((8*pft.size)/1000) / timeTaken))
+			speed = int(math.Round(float64((8*pft.size)/1024/1024) / timeTaken))
 		}
-		h := pft.hash.Sum(nil)
-		fmt.Println("Successfully received " + pft.filename + ", checksum=" + hex.EncodeToString(h) + " Size=" + strconv.FormatInt(int64(pft.size), 10) + " " + strconv.Itoa(speed) + "kbit/s")
+		fmt.Println("Successfully received " + pft.filename + ", Size=" + strconv.FormatInt(int64(pft.size), 10) + " " + strconv.Itoa(speed) + " Mbit/s")
 	}
 	return
 }
@@ -253,7 +260,11 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
  * sign - byte[64] - hmac512 of this packet
  */
 func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
-	if read < 1+4+4+32+64 {
+	hmacLen := 64
+	if r.conf.HMACSecret == "" {
+		hmacLen = 0
+	}
+	if read < 1+4+4+32+hmacLen {
 		return errors.New("received truncated file transfer Complete packet")
 	}
 
@@ -277,15 +288,15 @@ func (r *Receiver) onFileTransferComplete(buff []byte, read int) error {
 
 	hashFromManifest := hex.EncodeToString(buff[offset : offset+32])
 	offset += 32
-
-	h512 := sha512.New()
-	_, _ = io.WriteString(h512, r.conf.HMACSecret)
-	mac := hmac.New(sha512.New, h512.Sum(nil))
-	mac.Write(buff[:offset])
-	if !bytes.Equal(mac.Sum(nil), buff[offset:offset+64]) {
-		return errors.New("Invalid signature in file Complete packet for file " + pft.filename)
+	if r.conf.HMACSecret != "" {
+		h512 := sha512.New()
+		_, _ = io.WriteString(h512, r.conf.HMACSecret)
+		mac := hmac.New(sha512.New, h512.Sum(nil))
+		mac.Write(buff[:offset])
+		if !bytes.Equal(mac.Sum(nil), buff[offset:offset+64]) {
+			return errors.New("Invalid signature in file Complete packet for file " + pft.filename)
+		}
 	}
-
 	_ = pft.file.Sync()
 	_ = pft.file.Close()
 
@@ -310,13 +321,13 @@ func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int,
 			return
 		}
 	}
-	tmpHash, err := getFileHash(tmpFile)
+	tmpHash, err := getFileHash(tmpFile, r.conf.HashAlgo)
 	if err != nil {
 		wg.Done()
 		log.Fatal(err)
 	}
-
-	if hashFromManifest != hex.EncodeToString(tmpHash) {
+	tmpString := hex.EncodeToString(tmpHash)
+	if hashFromManifest != tmpString {
 		r.manifest.Files[pft.fileIndex].Complete = false
 		r.manifest.Files[pft.fileIndex].NextPackageId = 0
 		if r.conf.KeepBrokenFiles {
@@ -335,19 +346,41 @@ func (r *Receiver) finalizeFileTransfer(pft PendingFileTransfer, manifestId int,
 	wg.Done()
 }
 
-func getFileHash(tmpFile string) ([]byte, error) {
+func getFileHash(tmpFile string, hashAlgo string) ([]byte, error) {
+	var h hash.Hash
+	switch strings.ToLower(hashAlgo) {
+	case "none":
+		return []byte{0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7}, nil
+	case "md5":
+		h = md5.New()
+		break
+	case "sha1":
+		h = sha1.New()
+		break
+	default:
+		h = sha256.New()
+	}
+
 	f, err := os.Open(tmpFile)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	h := sha256.New()
 	if _, err = io.Copy(h, f); err != nil {
 		return nil, err
 	}
-	return h.Sum(nil), nil
+	return padBytes(h.Sum(nil), 32), nil
 }
+func padBytes(src []byte, blockSize int) []byte {
+	if len(src) == blockSize {
+		return src
+	}
+	padding := blockSize - len(src)%blockSize
+	padText := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(src, padText...)
+}
+
 func (r *Receiver) createFolders() {
 	if r.manifest == nil {
 		_, _ = fmt.Fprintf(os.Stderr, "no manifest \n")
