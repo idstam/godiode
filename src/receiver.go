@@ -99,15 +99,15 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		r.manifest.Files[fileIndex].NextPackageId = pt.index
 		pt.offset += uint64(read - 13)
 		pt.rawSize += uint64(HEADER_OVERHEAD + read)
-		if pt.offset == uint64(read-13) && r.conf.Verbose {
-			//			fmt.Println("Received first byte of data of " + pt.filename)
-		}
-		if pt.offset == pt.size {
-			//done, wait for file Complete packet
-		}
+		// if pt.offset == uint64(read-13) && r.conf.Verbose {
+		// 	//			fmt.Println("Received first byte of data of " + pt.filename)
+		// }
+		// if pt.offset == pt.size {
+		// 	//done, wait for file Complete packet
+		// }
 	} else {
 		//log.Fatal("Received out of order packet ", ptype&0x7F, pt.index, pt.offset)
-		err := errors.New(fmt.Sprintf("Received out of order packet for file transfer want %d got %d \n %s \n", pt.index, packageIndex, pt.filename))
+		err := errors.New(fmt.Sprintf("received out of order packet for file transfer want %d got %d \n %s \n", pt.index, packageIndex, pt.filename))
 		pt.incomplete = true
 		pt.err = &err
 		_ = pt.file.Close()
@@ -264,8 +264,8 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 
 	err = os.Rename(tmpFile, pft.filename)
 	if err != nil {
-		source, err := os.Open(tmpFile)
-		destination, err := os.Create(pft.filename)
+		source, _ := os.Open(tmpFile)
+		destination, _ := os.Create(pft.filename)
 
 		_, err = io.Copy(destination, source)
 		if err != nil {
@@ -446,7 +446,7 @@ func (r *Receiver) createFolders() {
 			}
 		}
 	}
-	return
+
 }
 
 func (r *Receiver) handleManifestReceived() error {
