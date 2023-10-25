@@ -163,7 +163,11 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	mf := r.manifest.Files[fileIndex]
 
 	//sanitize Path
-	fp := path.Clean(r.dir + mf.Path)
+	fp, err := r.verifyPath(r.dir + mf.Path)
+	if err != nil {
+		return err
+	}
+
 	if fp == "." {
 		return errors.New("invalid file Path name")
 	}
@@ -181,6 +185,11 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 	}
 	tmpFile := path.Join(r.tmpDir, "godiodetmp."+strconv.FormatUint(uint64(manifestId), 16)+"."+strconv.Itoa(fileIndex))
 
+	tmpFile, err = r.verifyPath(tmpFile)
+	if err != nil {
+		return err
+	}
+
 	file, err := os.OpenFile(tmpFile, os.O_RDWR|os.O_APPEND|os.O_CREATE, r.conf.Receiver.FilePermission)
 	if err != nil {
 		return errors.New("Failed to create file " + fp + ": " + err.Error())
@@ -196,6 +205,33 @@ func (r *Receiver) onFileTransferStart(buff []byte, read int) error {
 		index:         mf.NextPackageId,
 	}
 	return nil
+}
+
+func (r *Receiver) verifyPath(path string) (string, error) {
+
+	c := filepath.Clean(path)
+
+	p, err := filepath.EvalSymlinks(c)
+	if err != nil {
+		return c, errors.New("unsafe or invalid path specified " + err.Error())
+	}
+
+	err = r.inTrustedRoot(p)
+	if err != nil {
+		return p, errors.New("unsafe or invalid path specified " + err.Error())
+	} else {
+		return p, nil
+	}
+}
+
+func (r *Receiver) inTrustedRoot(path string) error {
+	for path != "/" {
+		path = filepath.Dir(path)
+		if path == r.dir {
+			return nil
+		}
+	}
+	return errors.New("path is outside of trusted root")
 }
 
 func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFromManifest string) {
@@ -216,11 +252,17 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 		}
 	}
 	destDir := filepath.Dir(pft.filename)
+	destDir, err := r.verifyPath(destDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, pft.filename+" "+err.Error()+"\n")
+		return
+	}
+
 	if _, err := os.Stat(destDir); os.IsNotExist(err) {
 		_ = os.MkdirAll(destDir, r.conf.Receiver.FolderPermission)
 	}
 
-	err := os.Rename(tmpFile, pft.filename)
+	err = os.Rename(tmpFile, pft.filename)
 	if err != nil {
 		source, err := os.Open(tmpFile)
 		destination, err := os.Create(pft.filename)
@@ -388,7 +430,13 @@ func (r *Receiver) createFolders() {
 	}
 	for d := range r.manifest.Dirs {
 		p := r.dir + path.Clean(r.manifest.Dirs[d].Path)
-		err := os.MkdirAll(p, r.conf.Receiver.FolderPermission)
+		p, err := r.verifyPath(p)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, p+" "+err.Error()+"\n")
+			return
+		}
+
+		err = os.MkdirAll(p, r.conf.Receiver.FolderPermission)
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "Error creating dir "+p+"\n")
 		} else {
