@@ -22,9 +22,9 @@ func printUsage() {
 }
 
 func usageError(msg string) {
-	fmt.Fprintf(os.Stderr, "Error: ")
-	fmt.Fprintf(os.Stderr, msg)
-	fmt.Fprintf(os.Stderr, "\n\n")
+	fmt.Fprint(os.Stderr, "Error: ")
+	fmt.Fprint(os.Stderr, msg)
+	fmt.Fprint(os.Stderr, "\n\n")
 	printUsage()
 	os.Exit(1)
 }
@@ -76,6 +76,8 @@ func main() {
 	flag.BoolVar(&config.KeepBrokenFiles, "keepbrokenfiles", config.KeepBrokenFiles, "rename broken temp files instead of deleting them")
 	flag.StringVar(&config.SaveManifestPath, "savemanifestpath", config.SaveManifestPath, "save the transfer manifest to disk, works both both ends")
 	flag.StringVar(&config.HashAlgo, "hashalgo", config.HashAlgo, "hashing algorithm for validating files. [sha256, sha1, md5, none] default is sha256")
+	flag.Var(&config.IncludeFilters, "include", "glob filter for files to include, can be used multiple times")
+	flag.Var(&config.ExcludeFilters, "exclude", "glob filter for files to exclude, can be used multiple times")
 	flag.Parse()
 
 	// load defaults from file
@@ -87,10 +89,11 @@ func main() {
 
 	if fileConfig != nil {
 		config = *fileConfig
+		// override file conf with args
+		flag.Parse()
+		config.IncludeFilters = arrayFlags{}
+		config.ExcludeFilters = arrayFlags{}
 	}
-
-	// override file conf with args
-	flag.Parse()
 
 	if len(os.Args) < 3 {
 		usageError("Missing required arguments")

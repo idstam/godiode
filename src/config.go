@@ -28,6 +28,19 @@ type Config struct {
 	KeepBrokenFiles   bool           `json:"keepbrokenfiles"`
 	SaveManifestPath  string         `json:"savemanifestpath"`
 	HashAlgo          string         `json:"hashAlgo"`
+	IncludeFilters    arrayFlags     `json:"IncludeFilters"`
+	ExcludeFilters    arrayFlags     `json:"ExcludeFilters"`
+}
+
+type arrayFlags []string
+
+func (i *arrayFlags) String() string {
+	return "my string representation"
+}
+
+func (i *arrayFlags) Set(value string) error {
+	*i = append(*i, value)
+	return nil
 }
 
 var config = Config{
@@ -45,4 +58,6 @@ var config = Config{
 		FolderPermission: 0700,
 		TmpDir:           "",
 	},
+	IncludeFilters: arrayFlags{},
+	ExcludeFilters: arrayFlags{},
 }
