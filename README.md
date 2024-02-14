@@ -16,6 +16,7 @@ These changes make this a little less PoC and more robust for production use.
  -  don't overwrite already received files if they are the same
  -  keep running the receiver until all files are received
  -  optional hash algorithms
+ -  glob filters for files
  
 
 ### Build instructions
@@ -58,17 +59,21 @@ Usage: godiode <options> send|receive <dir>
   -verbose
     	verbose output
   -resendcount
-        how many times to re-transmit from the sender
+        how many times to re-transmit from the sender (sender only)
   -resendmanifest
-        resend the manifest between every file
+        resend the manifest between every file (sender only)
   -fakepacketlosspercent
-        randomly drop packages
+        randomly drop packages (sender only)
   -keepbrokenfiles
-        rename broken received temp files instead of deleting them
+        rename broken received temp files instead of deleting them (receiver only)
   -savemanifestpath string
-        save the transfer manifest to disk, works both both ends
+        save the transfer manifest to disk
   -hashalgo
         hashing algorithm for validating files. [sha256, sha1, md5, none] default is sha256
+  -include
+        glob filter for files to include, can be used multiple times (sender only)
+  -exclude
+        glob filter for files to exclude, can be used multiple times (sender only)
 ```
 #### Receiver
 Replace eth0 with nic connected to diode, received data will end up in ./in

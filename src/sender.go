@@ -252,7 +252,7 @@ func send(conf *Config, dir string) error {
 
 	dir = path.Clean(dir)
 
-	manifest, err := generateManifest(dir, conf.SaveManifestPath)
+	manifest, err := generateManifest(dir, conf.SaveManifestPath, conf.IncludeFilters, conf.ExcludeFilters)
 	if err != nil {
 		return err
 	}

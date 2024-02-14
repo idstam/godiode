@@ -14,6 +14,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/gobwas/glob"
+	_ "github.com/gobwas/glob"
 )
 
 type DirRecord struct {
@@ -141,10 +144,13 @@ func (m *Manifest) serializeManifest(hmacSecret string) ([]byte, error) {
 	return manifest, nil
 }
 
-func generateManifest(dir string, manifestPath string) (*Manifest, error) {
+func generateManifest(dir string, manifestPath string, include arrayFlags, exclude arrayFlags) (*Manifest, error) {
 	manifest := Manifest{make([]DirRecord, 0), make([]FileRecord, 0), 0}
 	dir = path.Clean(dir)
 	finfo, err := os.Stat(dir)
+	includeGlobs, _ := compileGlobs(include)
+	excludeGlobs, _ := compileGlobs(exclude)
+
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +164,7 @@ func generateManifest(dir string, manifestPath string) (*Manifest, error) {
 			if p == dir {
 				return nil
 			}
+
 			p = strings.Replace(p, dir, "", 1)
 			if d.IsDir() {
 				info, err := d.Info()
@@ -166,16 +173,27 @@ func generateManifest(dir string, manifestPath string) (*Manifest, error) {
 				}
 				manifest.Dirs = append(manifest.Dirs, DirRecord{p, uint32(info.ModTime().Unix())})
 			} else {
-				info, err := d.Info()
+				finfo, err := d.Info()
 				if err != nil {
 					return nil
 				}
-				manifest.Files = append(manifest.Files, FileRecord{DirRecord{p, uint32(info.ModTime().Unix())}, info.Size(), 0, false})
+				
+				matchesExclude := matchAnyGlob(excludeGlobs, p, false)
+				matchesInclude := matchAnyGlob(includeGlobs, p, true)
+				if matchesInclude && !matchesExclude {
+					manifest.Files = append(manifest.Files, FileRecord{DirRecord{p, uint32(finfo.ModTime().Unix())}, finfo.Size(), 0, false})
+				}
+
 			}
 			return nil
 		})
 	} else {
-		manifest.Files = append(manifest.Files, FileRecord{DirRecord{finfo.Name(), uint32(finfo.ModTime().Unix())}, finfo.Size(), 0, false})
+		fname := finfo.Name()
+		matchesExclude := matchAnyGlob(excludeGlobs, fname, false)
+		matchesInclude := matchAnyGlob(includeGlobs, fname, true)
+		if matchesInclude && !matchesExclude {
+			manifest.Files = append(manifest.Files, FileRecord{DirRecord{fname, uint32(finfo.ModTime().Unix())}, finfo.Size(), 0, false})
+		}
 	}
 
 	saveManifest(manifestPath, manifest)
@@ -198,4 +216,24 @@ func saveManifest(manifestPath string, manifest Manifest) {
 		return
 	}
 
+}
+
+func compileGlobs(patterns arrayFlags) ([]glob.Glob, error) {
+	ret := make([]glob.Glob, 0)
+	for _, p := range patterns {
+		ret = append(ret, glob.MustCompile(p))
+	}
+	return ret, nil
+}
+func matchAnyGlob(globs []glob.Glob, fileName string, defaultOnEmpty bool) bool {
+	if len(globs) == 0 {
+		return defaultOnEmpty
+	}
+
+	for _, g := range globs {
+		if g.Match(fileName) {
+			return true
+		}
+	}
+	return false
 }
