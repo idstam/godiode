@@ -107,7 +107,7 @@ func (r *Receiver) onFileTransferData(buff []byte, read int) error {
 		// }
 	} else {
 		//log.Fatal("Received out of order packet ", ptype&0x7F, pt.index, pt.offset)
-		err := errors.New(fmt.Sprintf("received out of order packet for file transfer want %d got %d \n %s \n", pt.index, packageIndex, pt.filename))
+		err := fmt.Errorf("received out of order packet for file transfer want %d got %d \n %s", pt.index, packageIndex, pt.filename)
 		pt.incomplete = true
 		pt.err = &err
 		_ = pt.file.Close()
@@ -252,7 +252,7 @@ func (r *Receiver) moveTmpFile(pft PendingFileTransfer, tmpFile string, hashFrom
 		}
 		fmt.Println("Successfully received " + pft.filename + ", Size=" + strconv.FormatInt(int64(pft.size), 10) + " " + strconv.Itoa(speed) + " Mbit/s")
 	}
-	return
+
 }
 
 /*
@@ -358,10 +358,8 @@ func getFileHash(tmpFile string, hashAlgo string) ([]byte, error) {
 		return []byte{0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7}, nil
 	case "md5":
 		h = md5.New()
-		break
 	case "sha1":
 		h = sha1.New()
-		break
 	default:
 		h = sha256.New()
 	}
@@ -510,12 +508,12 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 		} else {
 			if part != pmt.index {
 				//r.pendingManifestTransfer = nil
-				return errors.New(fmt.Sprintf("received out of order manifest packet got %d wanted %d", part, pmt.index))
+				return fmt.Errorf("received out of order manifest packet got %d wanted %d", part, pmt.index)
 			}
 			read = copy(pmt.buff[pmt.offset:], buff[9:read])
 			pmt.offset += read
 			if pmt.offset == len(pmt.buff) {
-				manifest, err := deserializeManifest(pmt.buff, r.conf.HMACSecret)
+				manifest, err := deserializeManifest(pmt.buff, r.conf)
 				if err != nil {
 					return err
 				}
@@ -535,7 +533,7 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 	}
 	if pmt == nil {
 		if part != 0 {
-			return errors.New(fmt.Sprintf("waiting for first manifest part, received %d", part))
+			return fmt.Errorf("waiting for first manifest part, received %d", part)
 		}
 		size := int(binary.BigEndian.Uint32(buff[9:]))
 		if r.conf.Verbose {
@@ -548,7 +546,7 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 		manifestData := make([]byte, size)
 		read = copy(manifestData, buff[13:])
 		if read == size {
-			manifest, err := deserializeManifest(manifestData, r.conf.HMACSecret)
+			manifest, err := deserializeManifest(manifestData, r.conf)
 			if err != nil {
 				return err
 			}

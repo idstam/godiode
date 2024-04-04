@@ -53,18 +53,28 @@ type Manifest struct {
  *      Size uint64 - Size of the file in bytes
  * signature byte[64] - hmac512 of this packet
  */
-func deserializeManifest(data []byte, hmacSecret string) (*Manifest, error) {
+func deserializeManifest(data []byte, conf *Config) (*Manifest, error) {
+	hmacSecret := conf.HMACSecret
+
 	l := len(data)
 	if l < 64+4+4 {
-		return nil, errors.New("Truncated manifest")
+		return nil, errors.New("truncated manifest")
 	}
 	h512 := sha512.New()
 	io.WriteString(h512, hmacSecret)
 	mac := hmac.New(sha512.New, h512.Sum(nil))
 	mac.Write(data[:l-64])
 	sign := mac.Sum(nil)
+
 	if !bytes.Equal(sign, data[l-64:]) {
-		return nil, errors.New("Invalid manifest signature")
+		if conf.SaveManifestPath != "" {
+			err := os.WriteFile(conf.SaveManifestPath+".bin", data, 0644)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return nil, errors.New("invalid manifest signature")
 	}
 
 	manifest := Manifest{}
@@ -100,7 +110,8 @@ func deserializeManifest(data []byte, hmacSecret string) (*Manifest, error) {
 	return &manifest, nil
 }
 
-func (m *Manifest) serializeManifest(hmacSecret string) ([]byte, error) {
+func (m *Manifest) serializeManifest(conf *Config) ([]byte, error) {
+	hmacSecret := conf.HMACSecret
 	dirsSize := 0
 	filesSize := 0
 	for i := range m.Dirs {
@@ -141,7 +152,15 @@ func (m *Manifest) serializeManifest(hmacSecret string) ([]byte, error) {
 	mac.Write(manifest[:offset])
 	sign := mac.Sum(nil)
 	copy(manifest[offset:], sign)
+
+	if conf.SaveManifestPath != "" {
+		err := os.WriteFile(conf.SaveManifestPath+".bin", manifest, 0644)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return manifest, nil
+
 }
 
 func generateManifest(dir string, manifestPath string, include arrayFlags, exclude arrayFlags) (*Manifest, error) {
@@ -177,7 +196,7 @@ func generateManifest(dir string, manifestPath string, include arrayFlags, exclu
 				if err != nil {
 					return nil
 				}
-				
+
 				matchesExclude := matchAnyGlob(excludeGlobs, p, false)
 				matchesInclude := matchAnyGlob(includeGlobs, p, true)
 				if matchesInclude && !matchesExclude {

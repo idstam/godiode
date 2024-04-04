@@ -56,7 +56,7 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
 	if conf.MaxPacketSize < 14 {
 		return errors.New("too small packet max Size for sending manifest")
 	}
-	manifestData, err := manifest.serializeManifest(conf.HMACSecret)
+	manifestData, err := manifest.serializeManifest(conf)
 	if err != nil {
 		return err
 	}
