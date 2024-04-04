@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/gobwas/glob"
-	_ "github.com/gobwas/glob"
 )
 
 type DirRecord struct {

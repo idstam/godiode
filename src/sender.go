@@ -147,7 +147,7 @@ func sendFile(conf *Config, c *net.UDPConn, manifestId uint32, fIndex uint32, f 
 		fmt.Println("Sending file " + f)
 	}
 
-	buff := make([]byte, conf.MaxPacketSize, conf.MaxPacketSize)
+	buff := make([]byte, conf.MaxPacketSize)
 
 	buff[0] = 0x02
 	buff[1] = 0x00
@@ -258,7 +258,7 @@ func send(conf *Config, dir string) error {
 	}
 
 	if len(manifest.Files) == 0 && len(manifest.Dirs) == 0 {
-		return errors.New("No Files to send")
+		return errors.New("no files to send")
 	}
 
 	maddr, err := net.ResolveUDPAddr("udp", conf.MulticastAddr)
@@ -350,10 +350,8 @@ func getSendFileHash(tmpFile string, hashAlgo string) ([]byte, error) {
 		return []byte{0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7}, nil
 	case "md5":
 		h = md5.New()
-		break
 	case "sha1":
 		h = sha1.New()
-		break
 	default:
 		h = sha256.New()
 	}
