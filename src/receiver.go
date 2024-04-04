@@ -625,7 +625,7 @@ func receive(conf *Config, dir string) error {
 		return errors.New("Failed to join multicast address: " + err.Error())
 	}
 
-	err = c.SetReadBuffer(1024 * 1024)
+	err = c.SetReadBuffer(300 * conf.MaxPacketSize)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to set read buffer: "+err.Error()+"\n")
 	}
