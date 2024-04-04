@@ -282,12 +282,6 @@ func send(conf *Config, dir string) error {
 		return err
 	}
 
-	manifestId := rand.Uint32()
-	err = sendManifest(conf, c, manifest, manifestId, conf.ResendCount)
-	if err != nil {
-		return err
-	}
-
 	if conf.Sender.Bw > 0 {
 		THROTTLE.enabled = true
 		bytesPerSecond := int64(1024 * 1024 * conf.Sender.Bw / 8)
@@ -295,6 +289,11 @@ func send(conf *Config, dir string) error {
 		THROTTLE.capacity = 13 * int64(conf.MaxPacketSize+HEADER_OVERHEAD)
 		THROTTLE.tokens = THROTTLE.capacity
 		THROTTLE.last = time.Now()
+	}
+	manifestId := rand.Uint32()
+	err = sendManifest(conf, c, manifest, manifestId, conf.ResendCount)
+	if err != nil {
+		return err
 	}
 
 	// wait some to let the receiver create Dirs etc
