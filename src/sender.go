@@ -65,7 +65,7 @@ func sendManifest(conf *Config, c *net.UDPConn, manifest *Manifest, manifestId u
 	for rs := 0; rs < resendCount; rs++ {
 		sentCount++
 		if conf.Verbose {
-			fmt.Printf("sending manifest part %d of %d \n", sentCount, resendCount)
+			fmt.Printf("sending manifest round %d of %d \n", sentCount, resendCount)
 		}
 		buff := make([]byte, conf.MaxPacketSize)
 		buff[0] = 0x01

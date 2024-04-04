@@ -537,7 +537,7 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 		}
 		size := int(binary.BigEndian.Uint32(buff[9:]))
 		if r.conf.Verbose {
-			fmt.Println("received manifest size " + strconv.Itoa(size))
+			fmt.Println("receiving manifest size " + strconv.Itoa(size))
 		}
 		//if size > 5*1024*1024 || size < 1 {
 		//	return errors.New("too large manifest")
@@ -625,12 +625,12 @@ func receive(conf *Config, dir string) error {
 		return errors.New("Failed to join multicast address: " + err.Error())
 	}
 
-	err = c.SetReadBuffer(300 * conf.MaxPacketSize)
+	err = c.SetReadBuffer(1024 * 1024)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to set read buffer: "+err.Error()+"\n")
 	}
 
-	buff := make([]byte, conf.MaxPacketSize)
+	buff := make([]byte, 10*1024)
 	receiver := Receiver{
 		conf:   conf,
 		dir:    dir,
@@ -647,13 +647,13 @@ func receive(conf *Config, dir string) error {
 		}
 		ptype := buff[0] & 0xFF
 		if (ptype & 0x80) != 0 { // file transfer data
-			err = receiver.onFileTransferData(buff, read)
+			err = receiver.onFileTransferData(buff[:read], read)
 		} else if ptype == 0x02 { // start file transfer
-			err = receiver.onFileTransferStart(buff, read)
+			err = receiver.onFileTransferStart(buff[:read], read)
 		} else if ptype == 0x03 { // start file transfer
-			err = receiver.onFileTransferComplete(buff, read)
+			err = receiver.onFileTransferComplete(buff[:read], read)
 		} else if ptype == 0x01 { // manifest
-			err = receiver.onManifestPacket(buff, read)
+			err = receiver.onManifestPacket(buff[:read], read)
 		}
 		if err != nil {
 			if conf.Verbose {
