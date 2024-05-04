@@ -513,6 +513,7 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 			read = copy(pmt.buff[pmt.offset:], buff[9:read])
 			pmt.offset += read
 			if pmt.offset == len(pmt.buff) {
+				//TODO:Check that pmt.offset also equals the manifest size we got in the first packet.
 				manifest, err := deserializeManifest(pmt.buff, r.conf)
 				if err != nil {
 					return err
@@ -539,9 +540,11 @@ func (r *Receiver) onManifestPacket(buff []byte, read int) error {
 		if r.conf.Verbose {
 			fmt.Println("receiving manifest size " + strconv.Itoa(size))
 		}
-		//if size > 5*1024*1024 || size < 1 {
-		//	return errors.New("too large manifest")
-		//}
+
+		//TODO:This limit might be better as a cli parameter.
+		if size > 1024*1024*1024 || size < 1 {
+			return errors.New("too large manifest > 1gb")
+		}
 		r.manifestId = manifestId
 		manifestData := make([]byte, size)
 		read = copy(manifestData, buff[13:])
