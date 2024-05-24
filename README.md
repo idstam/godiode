@@ -4,6 +4,8 @@ This project is a fork from https://github.com/klockcykel/godiode
 
 I have made a lot of changes to make it work for large data sets in a production environment.
 
+If your company want to fund the developer please [create an invoice](https://invoice.jsisoft.se) for you finance department.
+
 ## Software
 With recommended OS optimizations it should reach 750+ Mbit/s file transfers.
 
